@@ -87,6 +87,9 @@ jobs:
       - name: Verify bcrypt native build
         run: node -e "require('bcrypt')"
 
+      - name: Verify schema drift and down-migrations
+        run: pnpm run prisma:drift:check
+
       - name: Apply database migrations
         run: pnpm prisma:migrate:deploy
 
