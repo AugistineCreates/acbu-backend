@@ -2,32 +2,25 @@
 
 ## Prerequisites
 
-- Node.js v16+ installed
-- pnpm package manager (required)
-- PowerShell execution policy configured (or use Command Prompt)
+- Node.js v18+ installed
+- pnpm or npm package manager
 
 ## Installation Steps
 
-### Option 1: Using Command Prompt (Recommended for Windows)
+Open your terminal in the project root directory and run:
 
-Open Command Prompt (cmd.exe) and run:
-
-```cmd
-cd "C:\Users\machintosh\Documents\Fouth Wave\acbu-backend"
-pnpm add -D fast-check
+```bash
+pnpm install
+# or
+npm install
 ```
 
-### Option 2: Using PowerShell with Execution Policy
+To install `fast-check` for property-based testing:
 
-If you prefer PowerShell, first enable script execution:
-
-```powershell
-# Run PowerShell as Administrator
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-
-# Then install
-cd "C:\Users\machintosh\Documents\Fouth Wave\acbu-backend"
+```bash
 pnpm add -D fast-check
+# or
+npm install --save-dev fast-check
 ```
 
 ## Verify Installation
