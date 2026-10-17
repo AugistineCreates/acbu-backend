@@ -114,6 +114,18 @@ Nodemon will automatically restart the server when you make changes to the code.
 - `pnpm changelog` - Regenerate the full CHANGELOG.md from all git history
 - `pnpm changelog:update` - Append the latest unreleased changes to CHANGELOG.md (after tagging a release)
 
+## Release & Versioning Strategy
+
+The backend follows semantic versioning and expects all release artifacts to be tagged consistently.
+
+- Versioning format: `vMAJOR.MINOR.PATCH` and optional pre-release suffixes such as `v1.2.0-rc.1`
+- `MAJOR`: breaking API or protocol changes
+- `MINOR`: backward-compatible features or new endpoints
+- `PATCH`: bug fixes, hardening, and compatibility patches
+- Release changes should be documented in `CHANGELOG.md` and reflected in the Git tag workflow used by the release pipeline
+
+For the maintainers' checklist and the recommended release flow, see [RELEASE.md](./RELEASE.md) and [docs/RELEASING.md](./docs/RELEASING.md).
+
 ## Project Structure
 
 ```
