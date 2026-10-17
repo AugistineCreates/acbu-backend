@@ -160,6 +160,7 @@ const envSchema = z.object({
 
   BULK_TRANSFER_CHUNK_SIZE: z.coerce.number().int().positive().default(100),
   BULK_TRANSFER_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(10485760),
+  BULK_TRANSFER_MAX_ROWS: z.coerce.number().int().positive().default(5000),
 
   // Notifications (email / SMS)
   // AB-045 (#995): the weekly weight-drift audit job addresses its report to
@@ -672,6 +673,7 @@ export const config = {
   bulkTransfer: {
     chunkSize: env.BULK_TRANSFER_CHUNK_SIZE,
     maxFileSizeBytes: env.BULK_TRANSFER_MAX_FILE_SIZE_BYTES,
+    maxRows: env.BULK_TRANSFER_MAX_ROWS,
   },
 
   // Smart Contracts

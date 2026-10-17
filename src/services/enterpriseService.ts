@@ -18,6 +18,7 @@ import type {
 
 const DEFAULT_CHUNK_SIZE = config.bulkTransfer.chunkSize;
 const DEFAULT_MAX_FILE_SIZE_BYTES = config.bulkTransfer.maxFileSizeBytes;
+const DEFAULT_MAX_ROWS = config.bulkTransfer.maxRows;
 
 function bufferFromInput(input: Buffer | NodeJS.ReadableStream): Promise<Buffer> {
   if (Buffer.isBuffer(input)) {
@@ -223,6 +224,7 @@ export async function processBulkTransfer(
 ): Promise<BulkTransferJobResult> {
   const chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
   const maxFileSizeBytes = options.maxFileSizeBytes ?? DEFAULT_MAX_FILE_SIZE_BYTES;
+  const maxRows = options.maxRows ?? DEFAULT_MAX_ROWS;
 
   const buffer = await bufferFromInput(params.fileContent);
   if (buffer.length > maxFileSizeBytes) {
@@ -230,6 +232,13 @@ export async function processBulkTransfer(
   }
 
   const { rows } = parseCsvBuffer(buffer);
+
+  if (rows.length > maxRows) {
+    throw new AppError(
+      `CSV exceeds maximum of ${maxRows} rows (received ${rows.length})`,
+      413,
+    );
+  }
 
   const job = await prisma.bulkTransferJob.create({
     data: {
