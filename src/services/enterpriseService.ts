@@ -234,10 +234,7 @@ export async function processBulkTransfer(
   const { rows } = parseCsvBuffer(buffer);
 
   if (rows.length > maxRows) {
-    throw new AppError(
-      `CSV exceeds maximum of ${maxRows} rows (received ${rows.length})`,
-      413,
-    );
+    throw new AppError(`CSV exceeds maximum of ${maxRows} rows (received ${rows.length})`, 413);
   }
 
   const job = await prisma.bulkTransferJob.create({
