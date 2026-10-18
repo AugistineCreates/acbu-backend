@@ -2,6 +2,14 @@
  * Fee policy: dynamic fees based on reserve levels (and optional demand).
  * Spread: buy/sell spread for rates/quote (0.2–0.3%).
  *
+ * FEE DESTINATION:
+ * ================
+ * ALL FEES (mint and burn) are retained in protocol reserves.
+ * - When user deposits $100, reserve receives $100 but only $99.70 of ACBU is minted
+ * - This creates over-collateralization (~100.3% from each mint)
+ * - Fees accumulate to reach and maintain the 103-105% reserve ratio target
+ * - Fees are NOT passed through to fintech partners
+ *
  * FEE TIER SPECIFICATION:
  * ========================
  * Mint Fees (based on reserve ratio):
