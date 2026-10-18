@@ -27,7 +27,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run security audit
+        # W10-TEST-010: fail the pipeline on high-severity (and critical) advisories.
+        # --audit-level high  → non-zero exit for high + critical (pnpm default is critical-only).
+        # continue-on-error is intentionally absent so the job fails hard on violations.
+        # To triage a known advisory, add it to .auditrc.json (pnpm audit --ignore-registry-errors)
+        # or pin the affected transitive dep to a patched version via pnpm.overrides.
         run: pnpm audit --audit-level high
+        continue-on-error: false
 
       - name: Run ESLint
         run: pnpm lint
