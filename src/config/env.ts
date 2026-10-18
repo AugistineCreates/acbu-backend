@@ -612,12 +612,11 @@ export const config = {
       env.STELLAR_NETWORK === "mainnet"
         ? "Public Global Stellar Network ; September 2015"
         : "Test SDF Network ; September 2015",
-    /** Network-native asset code shown to callers for wallet bootstrap (default XLM, or PI when bootstrap profile says so). */
+    /** Network-native asset code shown to callers for wallet bootstrap (default XLM). Override with STELLAR_NATIVE_ASSET_CODE. */
     nativeAssetCode: ((): string => {
       const explicit = env.STELLAR_NATIVE_ASSET_CODE?.trim();
       if (explicit) return explicit.toUpperCase();
-      const bootstrapProfile = (env.TESTNET_CUSTODIAL_BOOTSTRAP ?? "xlm").trim().toLowerCase();
-      return bootstrapProfile.includes("pi") ? "PI" : "XLM";
+      return "XLM";
     })(),
     /** Wallet activation strategy. Default keeps the current create-account path, but makes it explicit/configurable. */
     activationStrategy: env.WALLET_ACTIVATION_STRATEGY,
