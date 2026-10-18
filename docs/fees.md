@@ -100,6 +100,25 @@ The function:
 - Buy Rate: `midRate * (1 - spread/2)` - User pays slightly more
 - Sell Rate: `midRate * (1 + spread/2)` - User receives slightly less
 
+### 4. Merchant Payments & Acceptance Fees
+
+Merchant checkout transactions follow a specialized fee model distinct from P2P transfers and remittance mint/burn corridors:
+
+| Fee Component | Rate | Paid By | Recipient / Allocation | Description |
+|---------------|------|---------|------------------------|-------------|
+| **Payment Fee** | FREE (0.00%) | Payer / Customer | N/A | Customers paying merchants in ACBU pay zero platform fee |
+| **Merchant Acceptance Fee** | 20 BPS (0.20%) | Merchant | ACBU Protocol Reserve / Treasury | Incurred by the merchant per accepted transaction; allocated to protocol operations, reserve maintenance, and ecosystem infrastructure |
+| **Merchant Withdrawal (Burn)** | Dynamic (5–200 BPS; base 30 BPS / 0.30%) | Merchant | ACBU Protocol Reserve / Treasury | Standard burn fee applied when merchant liquidates ACBU to local fiat (e.g., 0.30% under normal reserve weights) |
+
+#### Merchant-Flow Fee Assumption in Financial Projections
+
+- **Remittance / Standard Flow (Two-Sided)**: User deposits fiat/USDC (mint fee: 0.30%) and recipient liquidates to fiat (burn fee: 0.30%), generating **0.60% (60 BPS)** in total per-tx volume revenue across both sides.
+- **Merchant Flow (Corrected Projection)**:
+  - Acceptance fee: **0.20% (20 BPS)** on transaction volume (payer side is FREE).
+  - Off-ramp / withdrawal (optional/subsequent): When merchants liquidate ACBU into local fiat, standard withdrawal burn fee applies (typically **0.30% (30 BPS)** under normal 85–115% reserve levels).
+  - **Total Per-Transaction Fee**: **0.20%** at payment point, or **0.50% (50 BPS)** total if merchant withdraws 100% of receipts immediately to fiat.
+  - Projections must **not** assume 0.60% across all volume: merchant-flow transaction volume yields 0.20%–0.50% total fee revenue, preventing overstatement of merchant-flow revenue projections.
+
 ## Economic Incentives
 
 ### Mint Fee Logic
@@ -180,6 +199,7 @@ RESERVE_ALERT_THRESHOLD=1.02
 
 | Date | Version | Changes | Auditor |
 |------|---------|---------|---------|
+| 2026-10-18 | 2.1 | Corrected merchant-flow fee assumption in projections (0.20%–0.50% vs 0.60%). Formally documented 0.20% acceptance fee and designated ACBU Protocol Reserve / Treasury as recipient. | Protocol / Financial Spec Review |
 | 2026-04-25 | 2.0 | Fixed burn fee logic: Changed high reserve fee from 10 to 5 BPS. Added sanity checks. Added fail-fast error handling. | Senior Backend Engineer |
 | 2026-01-29 | 1.0 | Initial implementation | - |
 
