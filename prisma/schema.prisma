@@ -48,7 +48,11 @@ model User {
   passcodeHash           String?          @map("passcode_hash") @db.VarChar(255)
   failedSigninAttempts   Int              @default(0) @map("failed_signin_attempts")
   lockoutUntil           DateTime?        @map("lockout_until") @db.Timestamp(6)
+  /// Opaque wallet backup encrypted by the client (W10-SEC-006). The backend
+  /// never receives the secret that opens it and ships no decryption path.
   encryptedStellarSecret String?          @map("encrypted_stellar_secret") @db.VarChar(512)
+  /// How encryptedStellarSecret was produced: "client_wrapped" or "external"
+  /// (address bound, no backup stored). Never "passcode".
   keyEncryptionHint      String?          @map("key_encryption_hint") @db.VarChar(50)
   walletVersion          Int              @default(0) @map("wallet_version")
   twoFaMethod            String?          @map("two_fa_method") @db.VarChar(20)
