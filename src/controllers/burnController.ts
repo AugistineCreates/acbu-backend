@@ -3,7 +3,7 @@
  * Creates transaction record; invokes burning contract when configured.
  */
 import { Response, NextFunction } from "express";
-import { Prisma } from "@prisma/client";
+import { Prisma, Transaction } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../config/database";
 import { getContractAddresses } from "../config/contracts";
@@ -40,7 +40,7 @@ function toNullableStringDecimal(v: unknown): string | null {
 /** Formats an idempotent response using the existing burn transaction record. */
 function respondFromExistingBurnTx(
   res: Response,
-  tx: any, // Using any to avoid type issues with Prisma client
+  tx: Transaction,
   blockchainTxHash: string | null | undefined,
 ): void {
   res.status(200).json({
