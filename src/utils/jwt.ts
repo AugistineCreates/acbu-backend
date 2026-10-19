@@ -66,6 +66,12 @@ const CHALLENGE_ISSUER = "acbu/auth";
 
 export interface ChallengePayload {
   userId: string;
+  /**
+   * The OTP challenge record ID (UUID) created during the unlock step.
+   * Binding the token to a specific challenge record prevents a valid OTP
+   * from a different concurrent session satisfying this verification (W10-BE-020).
+   */
+  otpChallengeId?: string;
   aud?: string;
   iss?: string;
   iat?: number;
@@ -90,12 +96,19 @@ function getChallengeSecret(): string {
 /**
  * Sign a 2FA challenge token for the given user (short-lived JWT).
  * Includes aud and iss claims for strict purpose binding.
+ *
+ * @param userId - The user's UUID.
+ * @param otpChallengeId - The OTP challenge record UUID created during the unlock step.
+ *   Embedding this ID in the token binds the challenge token to the specific OTP record,
+ *   so only the OTP issued for this particular unlock request can satisfy verification
+ *   (fixes W10-BE-020).
  */
-export function signChallengeToken(userId: string): string {
+export function signChallengeToken(userId: string, otpChallengeId?: string): string {
   const secret = getChallengeSecret();
 
   const payload: ChallengePayload = {
     userId,
+    ...(otpChallengeId ? { otpChallengeId } : {}),
     aud: CHALLENGE_AUDIENCE,
     iss: CHALLENGE_ISSUER,
   };

@@ -199,7 +199,9 @@ export async function unlockApp(
 
   const code = generateOtpCode();
   const codeHash = await bcrypt.hash(code, 10);
-  await prisma.otpChallenge.create({
+  // W10-BE-020: capture the created OTP challenge ID so we can embed it in the
+  // challenge token, binding this token to one specific OTP record.
+  const otpChallenge = await prisma.otpChallenge.create({
     data: {
       userId: user.id,
       codeHash,
@@ -210,7 +212,9 @@ export async function unlockApp(
 
   await publishOtpToQueue({ channel, to, code });
 
-  const challenge_token = signChallengeToken(user.id);
+  // Embed the OTP challenge ID in the token so verifyRecoveryOtp can look up
+  // this specific record instead of any unexpired OTP for the user (W10-BE-020).
+  const challenge_token = signChallengeToken(user.id, otpChallenge.id);
 
   // Audit the recovery initiation
   await auditRecoveryEvent({
@@ -256,14 +260,34 @@ export async function verifyRecoveryOtp(
   const payload = verifyChallengeToken(challenge_token);
 
   const now = new Date();
-  const challenge = await prisma.otpChallenge.findFirst({
-    where: {
-      userId: payload.userId,
-      expiresAt: { gt: now },
-      usedAt: null,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+
+  // W10-BE-020: prefer the specific OTP challenge ID embedded in the token.
+  // If present, look up by primary key so we cannot accidentally satisfy
+  // this verification with a different session's OTP for the same user.
+  let challenge: { id: string; codeHash: string } | null = null;
+
+  if (payload.otpChallengeId) {
+    // Strict binding: token was issued with a specific challenge ID.
+    challenge = await prisma.otpChallenge.findFirst({
+      where: {
+        id: payload.otpChallengeId,
+        userId: payload.userId, // defence-in-depth: confirm ownership
+        expiresAt: { gt: now },
+        usedAt: null,
+      },
+    });
+  } else {
+    // Legacy fallback for tokens issued before this fix was deployed.
+    // Falls back to the latest unused OTP for the user.
+    challenge = await prisma.otpChallenge.findFirst({
+      where: {
+        userId: payload.userId,
+        expiresAt: { gt: now },
+        usedAt: null,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
 
   if (!challenge) {
     await auditRecoveryEvent({
