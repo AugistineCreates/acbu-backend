@@ -63,6 +63,20 @@ WHERE (r.currency, r.segment, r.timestamp) IN (
 - `transactions`: Liquidity for operational transfers (primary)
 - `investment_savings`: Locked reserves for investment/yield programs
 
+### Reserve Composition & Overcollateralization Funding
+
+Reserves target **103%–105% of outstanding liabilities (total ACBU supply)** to ensure full backing plus operational and emergency buffers without double-counting:
+
+- **100% Core 1:1 Backing**: Exact 1:1 collateral against outstanding ACBU liabilities (custodied across fiat and liquid crypto).
+- **3% Operational Buffer**: Dedicated float for daily rebalancing and intra-day liquidity swings.
+- **2% Emergency Reserve Buffer**: Dedicated capital buffer for stress and crisis mitigation.
+- **Total Reserve Target**: **105% of outstanding ACBU supply** (alert threshold at 102%, healthy threshold at ≥ 105%).
+
+Under the hybrid custody model, the reserve asset composition is structured relative to total outstanding liabilities rather than summing to an unbuffered 100%:
+- **Partner Float / Custody**: ~80% of liabilities held in partner float / segregated accounts across supported African currencies.
+- **Liquid Crypto Assets (USDC/USDT)**: ~25% of liabilities held in liquid stablecoins (20% redemption buffer + 3% operational buffer + 2% emergency overcollateralization reserve).
+- **Total Funded Ratio**: 80% + 25% = 105% of total ACBU liabilities, explicitly funding the 3–5% overcollateralization surplus required by the trust model.
+
 #### 3. FX Snapshots (OracleRate Table)
 
 Exchange rates for converting local currency amounts to USD:
