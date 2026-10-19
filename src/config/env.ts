@@ -318,6 +318,22 @@ const envSchema = z.object({
     .toLowerCase()
     .pipe(z.enum(["strict", "allowlist"]))
     .default("strict"),
+
+  // #1143: Jurisdiction licensing configuration
+  /** Comma-separated list of ISO 3166-1 alpha-3 country codes where ACBU holds KYC/AML licensing. Default "RWA" (Rwanda). */
+  LICENSED_JURISDICTIONS: z.string().default("RWA"),
+  /** When true, enforces jurisdiction licensing checks for KYC operations. Default false (log-only mode). */
+  JURISDICTION_ENFORCE: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
+  /** Operating model: "direct" (ACBU operates KYC directly) or "partner" (KYC handled by licensed partners). Default "direct". */
+  KYC_OPERATING_MODEL: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["direct", "partner"]))
+    .default("direct"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -835,5 +851,12 @@ export const config = {
     thresholdAcbu: env.TRAVEL_RULE_THRESHOLD_ACBU,
     enforce: env.TRAVEL_RULE_ENFORCE === "true",
     mode: env.TRAVEL_RULE_MODE,
+  },
+
+  // #1143: Jurisdiction licensing configuration
+  jurisdiction: {
+    licensedJurisdictions: env.LICENSED_JURISDICTIONS.split(",").map((c) => c.trim().toUpperCase()),
+    enforce: env.JURISDICTION_ENFORCE === "true",
+    kycOperatingModel: env.KYC_OPERATING_MODEL,
   },
 };
