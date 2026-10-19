@@ -12,11 +12,7 @@
  * to validate the migration.sql itself applies cleanly; that should be
  * covered by CI, which runs against an actual Postgres service.
  */
-import {
-  issueRefreshToken,
-  refreshAccessToken,
-  revokeRefreshToken,
-} from "./authService";
+import { issueRefreshToken, refreshAccessToken, revokeRefreshToken } from "./authService";
 import { prisma } from "../../config/database";
 import { generateApiKey } from "../../middleware/auth";
 import { logAudit } from "../audit";
@@ -102,18 +98,16 @@ describe("refresh token flow (#734)", () => {
     it("rejects when no matching, unrevoked, unexpired token exists", async () => {
       (prisma.refreshToken.findFirst as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        refreshAccessToken({ refresh_token: "bogus" }),
-      ).rejects.toThrow("Invalid or expired refresh token");
+      await expect(refreshAccessToken({ refresh_token: "bogus" })).rejects.toThrow(
+        "Invalid or expired refresh token",
+      );
 
       expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
       expect(generateApiKey).not.toHaveBeenCalled();
     });
 
     it("rotates the whole token family and issues a new token + api key", async () => {
-      (prisma.refreshToken.findFirst as jest.Mock).mockResolvedValue(
-        existingToken,
-      );
+      (prisma.refreshToken.findFirst as jest.Mock).mockResolvedValue(existingToken);
       (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
         count: 1,
       });
@@ -141,8 +135,8 @@ describe("refresh token flow (#734)", () => {
           data: expect.objectContaining({ userId }),
         }),
       );
-      const createCallFamilyId = (prisma.refreshToken.create as jest.Mock).mock
-        .calls[0][0].data.tokenFamilyId;
+      const createCallFamilyId = (prisma.refreshToken.create as jest.Mock).mock.calls[0][0].data
+        .tokenFamilyId;
       expect(createCallFamilyId).not.toEqual(existingToken.tokenFamilyId);
 
       expect(result.api_key).toBe("new-api-key");
@@ -157,9 +151,9 @@ describe("refresh token flow (#734)", () => {
     it("rejects when the token is already revoked or unknown", async () => {
       (prisma.refreshToken.findFirst as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        revokeRefreshToken({ refresh_token: "bogus" }),
-      ).rejects.toThrow("Invalid refresh token");
+      await expect(revokeRefreshToken({ refresh_token: "bogus" })).rejects.toThrow(
+        "Invalid refresh token",
+      );
 
       expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
     });

@@ -40,11 +40,11 @@ export interface WeightDriftReport {
 }
 
 /** WeightDriftAudit row as stored in the database (no relations). */
-type WeightDriftAuditRow = Prisma.WeightDriftAuditGetPayload<{}>;
+export type WeightDriftAuditRow = Prisma.WeightDriftAuditGetPayload<Record<string, never>>;
 /** WeightDriftCurrency row as stored in the database. */
-type WeightDriftCurrencyRow = Prisma.WeightDriftCurrencyGetPayload<{}>;
+export type WeightDriftCurrencyRow = Prisma.WeightDriftCurrencyGetPayload<Record<string, never>>;
 /** WeightDriftAudit row including its per-currency snapshot rows. */
-type WeightDriftAuditWithCurrencies = Prisma.WeightDriftAuditGetPayload<{
+export type WeightDriftAuditWithCurrencies = Prisma.WeightDriftAuditGetPayload<{
   include: { currencies: true };
 }>;
 

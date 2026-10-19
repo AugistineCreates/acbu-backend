@@ -93,7 +93,10 @@ describe("FloatRevenueService (W10-S-012)", () => {
         partnerReserves: partners,
       };
 
-      const result = FloatRevenueService.calculateRevenueProjection(projectionInputs);
+      const result = FloatRevenueService.calculateRevenueProjection(
+        projectionInputs,
+        "contractual",
+      );
 
       // Fee revenue: $100M * 0.95% = $950,000
       expect(result.transactionFeeRevenueUsd.toString()).toBe("950000");
@@ -106,10 +109,47 @@ describe("FloatRevenueService (W10-S-012)", () => {
       // Total revenue: $950k (fees) + $200k (savings yield) + $560k (contracted float) = $1,710,000
       expect(result.totalProtocolRevenueUsd.toString()).toBe("1710000");
     });
+
+    it("should throw RangeError when entitled partner has invalid PRIA split", () => {
+      const invalidSplitPartner: PartnerSegregatedReserve = {
+        partnerId: "partner-bad-split",
+        partnerName: "Bad Split Partner",
+        currency: "ZAR",
+        reserveAmountLocal: new Decimal("10000000"),
+        reserveAmountUsd: new Decimal("1000000"),
+        hasContractualEntitlement: true,
+        agreementReference: "PRIA-BAD-01",
+        partnerRetentionBps: 1000, // 10% is below the mandatory 20%–30% policy range
+        protocolShareBps: 9000,
+        annualYieldRateBps: 500,
+      };
+
+      expect(() =>
+        FloatRevenueService.calculatePartnerFloatYield(invalidSplitPartner),
+      ).toThrow(RangeError);
+    });
+
+    it("should throw RangeError when PRIA split does not sum to 10000 bps", () => {
+      const invalidSumPartner: PartnerSegregatedReserve = {
+        partnerId: "partner-bad-sum",
+        partnerName: "Bad Sum Partner",
+        currency: "KES",
+        reserveAmountLocal: new Decimal("10000000"),
+        reserveAmountUsd: new Decimal("1000000"),
+        hasContractualEntitlement: true,
+        partnerRetentionBps: 2500,
+        protocolShareBps: 7000, // Sum = 9500 !== 10000
+        annualYieldRateBps: 500,
+      };
+
+      expect(() =>
+        FloatRevenueService.calculatePartnerFloatYield(invalidSumPartner),
+      ).toThrow(RangeError);
+    });
   });
 
   describe("Conservative Baseline vs Flawed Model Projections", () => {
-    it("should zero out all float interest when forceZeroFloatInterest is active", () => {
+    it("should zero out all float interest by default (conservative mode) even with entitled reserves", () => {
       const partner: PartnerSegregatedReserve = {
         partnerId: "ghs-partner",
         partnerName: "Ghana Partner",
@@ -130,10 +170,12 @@ describe("FloatRevenueService (W10-S-012)", () => {
         partnerReserves: [partner],
       };
 
-      const baseline = FloatRevenueService.calculateRevenueProjection(inputs, true);
+      // Default (no second argument) should be conservative baseline ($0 recognized float interest)
+      const baseline = FloatRevenueService.calculateRevenueProjection(inputs);
 
       expect(baseline.isConservativeBaseline).toBe(true);
       expect(baseline.recognizedFloatInterestUsd.toString()).toBe("0");
+      expect(baseline.partnerRetainedInterestUsd.toString()).toBe("1500000");
       expect(baseline.totalProtocolRevenueUsd.toString()).toBe(
         baseline.transactionFeeRevenueUsd.plus(baseline.investmentSavingsYieldUsd).toString(),
       );
@@ -193,5 +235,22 @@ describe("FloatRevenueService (W10-S-012)", () => {
       // Required volume: $3.7M / 0.0095 ≈ $389.47M
       expect(result.requiredAnnualVolumeUsd.toNumber()).toBeCloseTo(389473684.21, 0);
     });
+
+    it("should throw RangeError when blendedTakeRateBps is zero or negative", () => {
+      expect(() =>
+        FloatRevenueService.calculateBreakevenVolume({
+          annualOperatingExpensesUsd: ANNUAL_OPEX,
+          blendedTakeRateBps: 0,
+        }),
+      ).toThrow(RangeError);
+
+      expect(() =>
+        FloatRevenueService.calculateBreakevenVolume({
+          annualOperatingExpensesUsd: ANNUAL_OPEX,
+          blendedTakeRateBps: -50,
+        }),
+      ).toThrow(RangeError);
+    });
   });
 });
+

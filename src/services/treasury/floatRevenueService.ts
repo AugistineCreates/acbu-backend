@@ -20,6 +20,8 @@ export interface PartnerSegregatedReserve {
   annualYieldRateBps: number;
 }
 
+export type FloatInterestMode = "conservative" | "contractual";
+
 export interface RevenueProjectionInputs {
   annualizedVolumeUsd: Decimal;
   /** Blended take-rate across mint/burn and transaction routes in basis points (e.g. 95 bps = 0.95%) */
@@ -71,6 +73,10 @@ export class FloatRevenueService {
    * If hasContractualEntitlement is false, interest on segregated partner accounts
    * accrues to the partner / custodian under banking norms, resulting in $0 protocol revenue.
    * Only when a ratified PRIA exists is the contractual protocol share recognized.
+   *
+   * PRIA MANDATORY POLICY:
+   * partnerRetentionBps must be 2000..3000 (20%–30%), protocolShareBps must be 7000..8000 (70%–80%),
+   * and their sum must equal 10000.
    */
   public static calculatePartnerFloatYield(reserve: PartnerSegregatedReserve): {
     grossInterestUsd: Decimal;
@@ -89,6 +95,20 @@ export class FloatRevenueService {
       };
     }
 
+    if (
+      !Number.isFinite(reserve.partnerRetentionBps) ||
+      !Number.isFinite(reserve.protocolShareBps) ||
+      reserve.partnerRetentionBps < 2000 ||
+      reserve.partnerRetentionBps > 3000 ||
+      reserve.protocolShareBps < 7000 ||
+      reserve.protocolShareBps > 8000 ||
+      reserve.partnerRetentionBps + reserve.protocolShareBps !== 10000
+    ) {
+      throw new RangeError(
+        `Invalid PRIA split for partner ${reserve.partnerId}: partnerRetentionBps must be 2000..3000, protocolShareBps must be 7000..8000, and their sum must equal 10000`,
+      );
+    }
+
     const protocolShare = new Decimal(reserve.protocolShareBps).div(10000);
     const protocolYieldUsd = grossInterestUsd.mul(protocolShare);
     const partnerYieldUsd = grossInterestUsd.minus(protocolYieldUsd);
@@ -101,13 +121,16 @@ export class FloatRevenueService {
   }
 
   /**
-   * Computes revenue projections under the conservative baseline model (ignoring unentitled float)
-   * or under contractual best-case entitlement.
+   * Computes revenue projections under the conservative baseline model (ignoring uncontracted float)
+   * or under contractual best-case entitlement (PRIA upside).
+   *
+   * Defaults to "conservative" baseline mode to prevent unauthorized recognition of partner float.
    */
   public static calculateRevenueProjection(
     inputs: RevenueProjectionInputs,
-    forceZeroFloatInterest = false,
+    floatInterestMode: FloatInterestMode | boolean = "conservative",
   ): RevenueProjectionResult {
+    const isConservative = floatInterestMode === "conservative" || floatInterestMode === true;
     const takeRate = new Decimal(inputs.blendedTakeRateBps).div(10000);
     const transactionFeeRevenueUsd = inputs.annualizedVolumeUsd.mul(takeRate);
 
@@ -121,7 +144,7 @@ export class FloatRevenueService {
 
       grossPartnerFloatInterestUsd = grossPartnerFloatInterestUsd.plus(grossInterestUsd);
 
-      if (forceZeroFloatInterest) {
+      if (isConservative) {
         partnerRetainedInterestUsd = partnerRetainedInterestUsd.plus(grossInterestUsd);
       } else {
         recognizedFloatInterestUsd = recognizedFloatInterestUsd.plus(protocolYieldUsd);
@@ -140,7 +163,7 @@ export class FloatRevenueService {
       grossPartnerFloatInterestUsd,
       partnerRetainedInterestUsd,
       totalProtocolRevenueUsd,
-      isConservativeBaseline: forceZeroFloatInterest || recognizedFloatInterestUsd.isZero(),
+      isConservativeBaseline: isConservative || recognizedFloatInterestUsd.isZero(),
     };
   }
 
@@ -149,7 +172,7 @@ export class FloatRevenueService {
    *
    * Demonstrates the core impact of W10-S-012:
    * When uncontracted $3-5M float interest is removed, the required transaction volume
-   * to cover $4.2M OpEx shifts from ~$380M to ~$442M (assuming ~95 bps take rate).
+   * to cover $4.2M OpEx shifts from ~$73.7M to ~$442.1M (assuming ~95 bps take rate).
    */
   public static calculateBreakevenVolume(inputs: BreakevenAnalysisInputs): BreakevenAnalysisResult {
     const confirmedFloatInterest = inputs.confirmedFloatInterestUsd ?? new Decimal(0);
@@ -163,9 +186,10 @@ export class FloatRevenueService {
     );
 
     const takeRate = new Decimal(inputs.blendedTakeRateBps).div(10000);
-    const requiredAnnualVolumeUsd = takeRate.isZero()
-      ? new Decimal(0)
-      : netRevenueRequired.div(takeRate);
+    if (!takeRate.isFinite() || takeRate.lte(0)) {
+      throw new RangeError("blendedTakeRateBps must be a positive number");
+    }
+    const requiredAnnualVolumeUsd = netRevenueRequired.div(takeRate);
 
     return {
       annualOperatingExpensesUsd: inputs.annualOperatingExpensesUsd,

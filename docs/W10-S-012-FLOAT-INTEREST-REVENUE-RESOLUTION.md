@@ -20,7 +20,7 @@ This document formally details the rectification of this issue:
 
 1. Adopting a **Conservative Baseline Model (Production Default)** where float interest on partner-held segregated reserves is **zeroed out ($0.00)** in core budget and breakeven projections.
 2. Establishing the **Partner Reserve & Interest Agreement (PRIA)** framework, defining the strict legal, operational, and technical criteria under which partner float interest may be recognized as conditional revenue.
-3. Re-running the breakeven financial projections, correcting the required annualized transaction volume from the flawed ~$380M target to an audited **~$442M target** (assuming a conservative 95 bps blended take rate).
+3. Re-running the breakeven financial projections, correcting the required annualized transaction volume from the flawed ~$73.7M target (which assumed $3.5M uncontracted float interest) to an audited **~$442.1M target** (assuming a conservative 95 bps blended take rate).
 4. Implementing programmatic governance via `FloatRevenueService` and validating all rules through automated test suites.
 
 ---
@@ -72,9 +72,9 @@ $$\text{Assumed Float Revenue} = \$3,500,000$$
 $$\text{Net Revenue Required from Volume} = \$4,200,000 - \$3,500,000 = \$700,000$$
 
 At a blended protocol take-rate of **95 bps (0.95%)** (comprising mint/burn fees, FX spreads, and route fees):
-$$\text{Flawed Volume Target} = \frac{\$700,000}{0.0095} \approx \$73,684,210 \text{ USD}$$
+$$\text{Flawed Volume Target} = \frac{\$700,000}{0.0095} \approx \$73,684,210 \text{ USD} \approx \mathbf{\$73.7M}$$
 
-_(Or under alternative projections assuming partial capital deployment, an unsubstantiated $380M target was cited)._
+Subtracting an uncontracted $3.5M float interest reduced the net revenue required from transaction volume from $4.2M to only $700,000, artificially suppressing the breakeven volume target.
 
 ### 3.2 The Audited Conservative Baseline Model
 
@@ -86,18 +86,20 @@ $$\text{Net Revenue Required from Volume} = \$4,200,000$$
 
 $$\text{Audited Breakeven Volume} = \frac{\$4,200,000}{0.0095} = \$442,105,263 \text{ USD} \approx \mathbf{\$442.1M}$$
 
-### 3.3 Re-Run Projections Across Volume Tiers
+### 3.3 Illustrative Projections Across Volume Tiers
 
-| Annualized Volume  | Fee Take-Rate (95 bps) | Protocol Savings Yield* | Partner Float Interest (Baseline) | Total Protocol Revenue | Annual OpEx    | Net Operating Margin     |
-| ------------------ | ---------------------- | ----------------------- | --------------------------------- | ---------------------- | -------------- | ------------------------ |
-| **$50,000,000**    | $475,000               | $0                      | **$0**                            | $475,000               | $4,200,000     | -$3,725,000 (Deficit)    |
-| **$100,000,000**   | $950,000               | $150,000                | **$0**                            | $1,100,000             | $4,200,000     | -$3,100,000 (Deficit)    |
-| **$250,000,000**   | $2,375,000             | $350,000                | **$0**                            | $2,725,000             | $4,200,000     | -$1,475,000 (Deficit)    |
-| **$442,105,263**   | **$4,200,000**         | $0                      | **$0**                            | **$4,200,000**         | **$4,200,000** | **$0 (Breakeven Point)** |
-| **$500,000,000**   | $4,750,000             | $500,000                | **$0**                            | $5,250,000             | $4,200,000     | +$1,050,000 (+25.0%)     |
-| **$1,000,000,000** | $9,500,000             | $1,000,000              | **$0**                            | $10,500,000            | $4,200,000     | +$6,300,000 (+150.0%)    |
+Rows with a non-zero `Protocol Savings Yield` are illustrative scenarios, not the conservative baseline. The conservative baseline excludes uncontracted partner float interest. The `$442.1M` breakeven row also assumes `$0` protocol savings yield.
 
-_\*Note: Protocol Savings Yield is generated strictly by protocol-deployed capital in the `investment_savings` segment governed by `allocationService.ts`, entirely separate from operational partner float._
+| Annualized Volume  | Fee Take-Rate (95 bps) | Protocol Savings Yield (Scenario Assumption)* | Partner Float Interest (Baseline) | Total Protocol Revenue | Annual OpEx    | Net Operating Surplus / OpEx |
+| ------------------ | ---------------------- | --------------------------------------------- | --------------------------------- | ---------------------- | -------------- | ---------------------------- |
+| **$50,000,000**    | $475,000               | $0                                            | **$0**                            | $475,000               | $4,200,000     | -$3,725,000 (Deficit)        |
+| **$100,000,000**   | $950,000               | $150,000                                      | **$0**                            | $1,100,000             | $4,200,000     | -$3,100,000 (Deficit)        |
+| **$250,000,000**   | $2,375,000             | $350,000                                      | **$0**                            | $2,725,000             | $4,200,000     | -$1,475,000 (Deficit)        |
+| **$442,105,263**   | **$4,200,000**         | $0                                            | **$0**                            | **$4,200,000**         | **$4,200,000** | **$0 (Breakeven Point)**     |
+| **$500,000,000**   | $4,750,000             | $500,000                                      | **$0**                            | $5,250,000             | $4,200,000     | +$1,050,000 (+25.0%)         |
+| **$1,000,000,000** | $9,500,000             | $1,000,000                                    | **$0**                            | $10,500,000            | $4,200,000     | +$6,300,000 (+150.0%)        |
+
+_\*Note: Protocol Savings Yield is generated strictly by protocol-deployed capital in the `investment_savings` segment governed by `allocationService.ts`, entirely separate from operational partner float. Scenario values ($150k, $350k, $500k, $1M) reflect illustrative deployments of protocol treasury capital at a modeled 5.0% APY across expanding protocol balance sheets ($3M, $7M, $10M, $20M deployed capital). These values are not included in the $442.1M conservative-baseline breakeven calculation._
 
 ---
 
@@ -151,7 +153,7 @@ The implementation is verified via `tests/floatRevenueService.test.ts`:
 - **Unentitled Partner Isolation:** Verified that an unentitled partner holding $15M at 10% APY yields $0 to the protocol and 100% ($1.5M) to the partner.
 - **PRIA Revenue Sharing:** Verified that an entitled partner holding $20M at 9% APY with 80/20 split awards $1.44M to the protocol and $360k to the partner.
 - **Mixed Portfolio Aggregation:** Verified correct multi-currency aggregation across entitled and uncontracted accounts.
-- **Breakeven Rectification:** Confirmed the mathematical shift from the flawed ~$73.7M / $380M breakeven to the audited $442.1M baseline.
+- **Breakeven Rectification:** Confirmed the mathematical shift from the flawed ~$73.7M breakeven to the audited $442.1M baseline.
 
 ---
 

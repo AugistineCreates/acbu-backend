@@ -69,9 +69,7 @@ async function sumDepositsUsdSince(
     }),
   ]);
 
-  return new Decimal(usdcAgg._sum.usdcAmount ?? 0).plus(
-    new Decimal(basketAgg._sum.amountUsd ?? 0),
-  );
+  return new Decimal(usdcAgg._sum.usdcAmount ?? 0).plus(new Decimal(basketAgg._sum.amountUsd ?? 0));
 }
 
 /**
