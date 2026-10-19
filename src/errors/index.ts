@@ -38,6 +38,19 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
+// ─── CORS errors ────────────────────────────────────────────────────────
+
+/**
+ * W10-BE-015 (#1198): a request was rejected because its Origin is not in the
+ * CORS allowlist. This is a client-side misconfiguration, not a server fault,
+ * so it must surface as 403 rather than a generic 500 INTERNAL_ERROR.
+ */
+export class CorsForbiddenError extends ForbiddenError {
+  constructor(message = "Origin not allowed by CORS") {
+    super(message, "CORS_FORBIDDEN");
+  }
+}
+
 // ─── Auth-specific errors ───────────────────────────────────────────────
 
 export class UsernameTakenError extends ConflictError {
