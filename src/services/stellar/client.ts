@@ -41,6 +41,7 @@ export class StellarClient {
     failureThreshold: 3,
     cooldownMs: 30_000,
     successThreshold: 2,
+    serviceName: "stellar_horizon",
   });
 
   constructor(cfg?: Partial<StellarNetworkConfig>) {

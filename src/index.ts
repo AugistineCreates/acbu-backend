@@ -442,6 +442,10 @@ async function startServer() {
       const { startWeightDriftAuditScheduler } = await import("./jobs/weightDriftAuditJob");
       await startWeightDriftAuditScheduler();
 
+      // W10-I-013: Start reserve metrics job (every 5 minutes)
+      const { startReserveMetricsJob } = await import("./jobs/reserveMetricsJob");
+      startReserveMetricsJob();
+
       // Salary schedule: trigger recurring salary payments
       const { startSalaryScheduleScheduler } = await import("./jobs/salaryScheduleJob");
       await startSalaryScheduleScheduler();
