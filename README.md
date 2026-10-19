@@ -277,6 +277,10 @@ The CI pipeline:
 ### Features
 - **Transfer service** (b6b7036): Implemented `createTransfer` in `transferService.ts` with input validation, KYC checks, and blockchain transaction handling, along with full unit test coverage in `tests/transfer.test.ts`
 
+## Roadmap
+
+For the ACBU platform development roadmap with committed timelines, owners, dependencies, and acceptance criteria, see [docs/ROADMAP.md](./docs/ROADMAP.md).
+
 ## Contributing
 
 1. Create a feature branch
