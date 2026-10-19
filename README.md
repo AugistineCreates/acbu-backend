@@ -276,6 +276,7 @@ The CI pipeline:
 
 ### Features
 - **Transfer service** (b6b7036): Implemented `createTransfer` in `transferService.ts` with input validation, KYC checks, and blockchain transaction handling, along with full unit test coverage in `tests/transfer.test.ts`
+- **Float-interest revenue & segregated partner reserves** (W10-S-012, #1141): Resolved revenue model contradiction where float interest was assumed on partner-held segregated reserves. Established conservative baseline zeroing uncontracted partner float ($0.00), defined the Partner Reserve & Interest Agreement (PRIA) framework for conditional entitlement, re-ran breakeven projections to $442M volume, and implemented programmatic governance in `FloatRevenueService`.
 
 ## Contributing
 
@@ -289,4 +290,4 @@ The CI pipeline:
 
 Apache License 2.0
 
-<!-- Verified issues #1137, #1140, #1146, #1150 -->
+<!-- Verified issues #1137, #1140, #1146, #1150, #1141 -->
