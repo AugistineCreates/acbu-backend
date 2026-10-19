@@ -302,6 +302,22 @@ const envSchema = z.object({
   // they stay strings here.
   CURRENCY_CENTRAL_BANK_URLS: z.string().optional(),
   FINTECH_CURRENCY_PROVIDERS: z.string().optional(),
+
+  // #1142: Travel Rule / AML compliance configuration
+  /** Amount threshold in ACBU above which Travel Rule compliance is required. Default 1000. */
+  TRAVEL_RULE_THRESHOLD_ACBU: z.coerce.number().positive().default(1000),
+  /** When true, enforces Travel Rule compliance for P2P transfers above threshold. Default false (log-only mode). */
+  TRAVEL_RULE_ENFORCE: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
+  /** Travel Rule compliance mode: "strict" (reject non-compliant) or "allowlist" (only allow VASP/allowlisted recipients). Default "strict". */
+  TRAVEL_RULE_MODE: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["strict", "allowlist"]))
+    .default("strict"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -812,5 +828,12 @@ export const config = {
     leakThresholdPct: env.MEMORY_LEAK_THRESHOLD_PCT,
     checkIntervalMs: env.MEMORY_CHECK_INTERVAL_MS,
     heapDumpDir: env.HEAP_DUMP_DIR,
+  },
+
+  // #1142: Travel Rule / AML compliance configuration
+  travelRule: {
+    thresholdAcbu: env.TRAVEL_RULE_THRESHOLD_ACBU,
+    enforce: env.TRAVEL_RULE_ENFORCE === "true",
+    mode: env.TRAVEL_RULE_MODE,
   },
 };
