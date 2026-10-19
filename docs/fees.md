@@ -115,11 +115,23 @@ This protects the system from becoming under-collateralized.
 
 The burn fee structure creates currency-specific rebalancing incentives:
 
-1. **Low Reserves (<85% of target)**: High fee (200 BPS) strongly discourages withdrawals of scarce currencies
-2. **Normal Reserves (85-115%)**: Standard fee (30 BPS) allows normal operations
-3. **High Reserves (>115%)**: Low fee (5 BPS) encourages withdrawals to rebalance the basket
+1. **Low Reserves (<85% of target)**: High fee (200 BPS / 2.00%) strongly discourages withdrawals of scarce currencies
+2. **Normal Reserves (85-115%)**: Standard base fee (30 BPS / 0.30%) applies for normal operations
+3. **High Reserves (>115%)**: Discounted low fee (5 BPS / 0.05%) encourages withdrawals to rebalance the basket
 
 This automatically incentivizes users to help maintain the target basket composition.
+
+### Rebalancing Fee Model vs Flat Fee Model Alignment
+
+The ACBU architecture clarifies the distinction between user-facing operations, operational reserve rebalancing, and fee structures:
+
+- **Baseline / Standard Fee**: The core transaction fee across general documentation, user flows, and pricing formulas is standard **0.30% (30 BPS)** for both minting and burning in normal operating conditions (reserve ratio ≥ 1.02 and currency reserve weight between 85% and 115% of target).
+- **Operational Dynamic Rebalancing**: Rather than applying opaque variable fees (+/- 0.5% arbitrary discounts/penalties), all dynamic adjustments are strictly governed by reserve thresholds:
+  - **Minting**: 30 BPS (healthy reserves ≥ 1.02) to 50 BPS (stressed reserves < 1.02), capped at 100 BPS.
+  - **Burning / Withdrawals**: 30 BPS standard, 5 BPS discount for high-reserve currencies (>115% of target) to incentivize outflows, and 200 BPS penalty for low-reserve currencies (<85% of target) to protect liquidity.
+  - **Automated Protocol Rebalancing**: Daily operational rebalancing (executed at 00:00 UTC by `RebalancingEngine`) performs protocol-level swaps via fintech partner liquidity and does not charge hidden ad-hoc fees to regular user transfers.
+
+All user flows and API quotes surface the exact effective fee dynamically retrieved via `getMintFeeBps()` and `getBurnFeeBps(currency)` before transaction execution.
 
 ## Sanity Checks
 
@@ -180,6 +192,7 @@ RESERVE_ALERT_THRESHOLD=1.02
 
 | Date | Version | Changes | Auditor |
 |------|---------|---------|---------|
+| 2026-10-19 | 2.1 | Reconciled fee model: explicitly documented operational rebalancing mechanics vs flat 0.30% base fee, clarifying discount/penalty dynamics. | Systems Architect |
 | 2026-04-25 | 2.0 | Fixed burn fee logic: Changed high reserve fee from 10 to 5 BPS. Added sanity checks. Added fail-fast error handling. | Senior Backend Engineer |
 | 2026-01-29 | 1.0 | Initial implementation | - |
 
