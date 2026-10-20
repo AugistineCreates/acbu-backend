@@ -4,13 +4,16 @@
  * Uses fintech router for FX rates; instructions can be consumed by REBALANCING queue for execution.
  */
 import { prisma } from "../../config/database";
+import { config } from "../../config/env";
 import { logger } from "../../config/logger";
 import { getFintechRouter } from "../fintech";
 import { reserveTracker } from "./ReserveTracker";
 import type { ReserveHealth, ReserveStatus } from "./ReserveTracker";
 import { Decimal } from "@prisma/client/runtime/library";
 
-const DRIFT_THRESHOLD_PCT = 1; // rebalance when |actual - target| > 1%
+// #627: Read from config so the threshold can be tuned via RESERVE_DRIFT_THRESHOLD_PCT
+// without a code change or redeploy of the full service.
+const DRIFT_THRESHOLD_PCT = config.reserve.driftThresholdPct;
 
 export interface RebalanceInstruction {
   fromCurrency: string;
@@ -64,11 +67,7 @@ export class RebalancingEngine {
       if (excessUsd.lte(0)) continue;
       try {
         const providerFrom = await router.getProvider(over.currency);
-        const rateFrom = await providerFrom.convertCurrency(
-          1,
-          over.currency,
-          "USD",
-        );
+        const rateFrom = await providerFrom.convertCurrency(1, over.currency, "USD");
         const rateFromUsd = rateFrom.rate;
         for (const under of underweight) {
           const deficitPct = under.weightDrift.neg();
@@ -80,11 +79,7 @@ export class RebalancingEngine {
           if (shareOfExcess.lte(0)) continue;
           try {
             const providerTo = await router.getProvider(under.currency);
-            const rateTo = await providerTo.convertCurrency(
-              1,
-              under.currency,
-              "USD",
-            );
+            const rateTo = await providerTo.convertCurrency(1, under.currency, "USD");
             const rateToUsd = rateTo.rate;
             const amountFrom = shareOfExcess.div(rateFromUsd).toNumber();
             const amountTo = shareOfExcess.div(rateToUsd).toNumber();
@@ -127,10 +122,7 @@ export class RebalancingEngine {
     const driftSnapshot = health.currencies;
     const totalReserveUsd = health.totalReserveValueUsd;
 
-    const instructions = await this.generateInstructions(
-      driftSnapshot,
-      totalReserveUsd,
-    );
+    const instructions = await this.generateInstructions(driftSnapshot, totalReserveUsd);
 
     const event = await prisma.rebalancingEvent.create({
       data: {
