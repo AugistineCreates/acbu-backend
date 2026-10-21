@@ -58,7 +58,9 @@ jest.mock("../../config/logger", () => ({
 }));
 
 jest.mock("../wallet/walletService", () => ({
-  ensureWalletForUser: jest.fn().mockResolvedValue({ wallet_created: false }),
+  getWalletEnrollmentStatus: jest
+    .fn()
+    .mockResolvedValue({ enrolled: false, stellar_address: null }),
 }));
 
 jest.mock("../audit", () => ({

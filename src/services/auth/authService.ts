@@ -18,7 +18,7 @@ import { getRabbitMQChannel } from "../../config/rabbitmq";
 import { generateId } from "../../utils/idGenerator";
 import { generateSecureOtp } from "../../utils/secureOtp";
 import { QUEUES } from "../../config/rabbitmq";
-import { ensureWalletForUser } from "../wallet/walletService";
+import { getWalletEnrollmentStatus } from "../wallet/walletService";
 import { logAudit } from "../audit";
 import { authBruteGuard } from "../../utils/authBruteGuard";
 import { PermissionsArraySchema, PermissionScope } from "../../types/permissions";
@@ -89,9 +89,7 @@ export type SigninResult =
   | {
       api_key: string;
       user_id: string;
-      wallet_created?: boolean;
-      passphrase?: string;
-      encryption_method_required?: boolean;
+      wallet_enrollment_required: boolean;
       stellar_address?: string | null;
       refresh_token?: string;
       refresh_token_expires_at?: string;
@@ -107,9 +105,7 @@ export interface Verify2faParams {
 export interface Verify2faResult {
   api_key: string;
   user_id: string;
-  wallet_created?: boolean;
-  passphrase?: string;
-  encryption_method_required?: boolean;
+  wallet_enrollment_required: boolean;
   stellar_address?: string | null;
   refresh_token?: string;
   refresh_token_expires_at?: string;
@@ -477,11 +473,7 @@ export async function signin(params: SigninParams): Promise<SigninResult> {
   }
 
   const api_key = await generateApiKey(user.id, [], { keyType: "USER_KEY" });
-  const wallet = await ensureWalletForUser(user.id);
-  const userFull = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { stellarAddress: true },
-  });
+  const wallet = await getWalletEnrollmentStatus(user.id);
 
   await logAudit({
     eventType: "auth",
@@ -497,18 +489,16 @@ export async function signin(params: SigninParams): Promise<SigninResult> {
   const out: {
     api_key: string;
     user_id: string;
-    wallet_created?: boolean;
-    passphrase?: string;
-    encryption_method_required?: boolean;
+    wallet_enrollment_required: boolean;
     stellar_address?: string | null;
     refresh_token?: string;
     refresh_token_expires_at?: string;
-  } = { api_key, user_id: user.id, stellar_address: userFull?.stellarAddress };
-  if (wallet.wallet_created && wallet.passphrase) {
-    out.wallet_created = true;
-    out.passphrase = wallet.passphrase;
-    out.encryption_method_required = true;
-  }
+  } = {
+    api_key,
+    user_id: user.id,
+    wallet_enrollment_required: !wallet.enrolled,
+    stellar_address: wallet.stellar_address,
+  };
 
   if (params.issueRefreshToken) {
     const refreshToken = await issueRefreshToken({ userId: user.id });
@@ -608,11 +598,7 @@ export async function verify2fa(params: Verify2faParams): Promise<Verify2faResul
   }
 
   const api_key = await generateApiKey(user.id, []);
-  const wallet = await ensureWalletForUser(user.id);
-  const userFull = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { stellarAddress: true },
-  });
+  const wallet = await getWalletEnrollmentStatus(user.id);
 
   await logAudit({
     eventType: "auth",
@@ -628,18 +614,16 @@ export async function verify2fa(params: Verify2faParams): Promise<Verify2faResul
   const out: {
     api_key: string;
     user_id: string;
-    wallet_created?: boolean;
-    passphrase?: string;
-    encryption_method_required?: boolean;
+    wallet_enrollment_required: boolean;
     stellar_address?: string | null;
     refresh_token?: string;
     refresh_token_expires_at?: string;
-  } = { api_key, user_id: user.id, stellar_address: userFull?.stellarAddress };
-  if (wallet.wallet_created && wallet.passphrase) {
-    out.wallet_created = true;
-    out.passphrase = wallet.passphrase;
-    out.encryption_method_required = true;
-  }
+  } = {
+    api_key,
+    user_id: user.id,
+    wallet_enrollment_required: !wallet.enrolled,
+    stellar_address: wallet.stellar_address,
+  };
 
   if (params.issueRefreshToken) {
     const refreshToken = await issueRefreshToken({ userId: user.id });
