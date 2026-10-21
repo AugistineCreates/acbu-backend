@@ -1,4 +1,4 @@
-/**
+/*
  * Tests for the refresh-token flow (issue #734).
  *
  * The RefreshToken Prisma model and these service functions already
@@ -22,6 +22,10 @@ jest.mock("../../config/database", () => ({
     refreshToken: {
       create: jest.fn(),
       findFirst: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    apiKey: {
+      create: jest.fn(),
       updateMany: jest.fn(),
     },
   },
@@ -92,6 +96,7 @@ describe("refresh token flow (#734)", () => {
     const existingToken = {
       id: "rt-1",
       tokenFamilyId: "family-1",
+      apiKeyId: "apk-1",
       user: { id: userId, actorType: "retail", organizationId: null },
     };
 
@@ -112,6 +117,9 @@ describe("refresh token flow (#734)", () => {
         count: 1,
       });
       (prisma.refreshToken.create as jest.Mock).mockResolvedValue({});
+      (prisma.apiKey.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
       (generateApiKey as jest.Mock).mockResolvedValue("new-api-key");
 
       const result = await refreshAccessToken({
@@ -120,9 +128,20 @@ describe("refresh token flow (#734)", () => {
 
       // The old family must be fully revoked, not just the one token used.
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
+        expect.objectContainig({
+          where: expect.objectContainig({
             tokenFamilyId: existingToken.tokenFamilyId,
+            revokedAt: null,
+          }),
+          data: expect.objectContaining({ revokedAt: expect.any(Date) }),
+        }),
+      );
+
+      // The prior api key associated with the rotated family must be revoked.
+      expect(prisma.apiKey.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContainig({
+            id: existingToken.apiKeyId,
             revokedAt: null,
           }),
           data: expect.objectContaining({ revokedAt: expect.any(Date) }),
@@ -145,6 +164,40 @@ describe("refresh token flow (#734)", () => {
         expect.objectContaining({ action: "refresh_token_rotated" }),
       );
     });
+
+    it("revokes the prior api key when the token family has an associated key", async () => {
+      (prisma.refreshToken.findFirst as jest.Mock).mockResolvedValue(
+        existingToken,
+      );
+      (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+      (prisma.refreshToken.create as jest.Mock).mockResolvedValue({});
+      (prisma.apiKey.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+      (generateApiKey as jest.Mock).mockResolvedValue("new-api-key");
+
+      await refreshAccessToken({ refresh_token: "old-refresh-token" });
+
+      expect(prisma.apiKey.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not attempt to revoke an api key when the family has none", async () => {
+      (prisma.refreshToken.findFirst as jest.Mock).mockResolvedValue({
+        ...existingToken,
+        apiKeyId: null,
+      });
+      (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+      (prisma.refreshToken.create as jest.Mock).mockResolvedValue({});
+      (generateApiKey as jest.Mock).mockResolvedValue("new-api-key");
+
+      await refreshAccessToken({ refresh_token: "old-refresh-token" });
+
+      expect(prisma.apiKey.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   describe("revokeRefreshToken", () => {
@@ -162,10 +215,14 @@ describe("refresh token flow (#734)", () => {
       (prisma.refreshToken.findFirst as jest.Mock).mockResolvedValue({
         id: "rt-1",
         tokenFamilyId: "family-1",
+        apiKeyId: "apk-1",
         user: { id: userId, actorType: "retail", organizationId: null },
       });
       (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
         count: 2,
+      });
+      (prisma.apiKey.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
       });
 
       const result = await revokeRefreshToken({
@@ -174,8 +231,8 @@ describe("refresh token flow (#734)", () => {
 
       expect(result).toEqual({ ok: true });
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
+        expect.objectContaining( {
+          where: expect.objectContainig({
             tokenFamilyId: "family-1",
             revokedAt: null,
           }),
@@ -183,6 +240,33 @@ describe("refresh token flow (#734)", () => {
       );
       expect(logAudit).toHaveBeenCalledWith(
         expect.objectContaining({ action: "refresh_token_revoked" }),
+      );
+    });
+
+    it("revokes the associated api key when revoking a token family", async () => {
+      (prisma.refreshToken.findFirst as jest.Mock).mockResolvedValue({
+        id: "rt-1",
+        tokenFamilyId: "family-1",
+        apiKeyId: "apk-1",
+        user: { id: userId, actorType: "retail", organizationId: null },
+      });
+      (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 2,
+      });
+      (prisma.apiKey.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+
+      await revokeRefreshToken({ refresh_token: "some-token" });
+
+      expect(prisma.apiKey.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContainig({
+            id: "apk-1",
+            revokedAt: null,
+          }),
+          data: expect.objectContaining({ revokedAt: expect.any(Date) }),
+        }),
       );
     });
   });
