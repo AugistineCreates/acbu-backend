@@ -1,6 +1,13 @@
 /**
  * Mint/deposit controllers.
  * Deposit rule: only basket (pool) currencies for /mint/deposit. USDC and XLM deposits accepted via /mint/usdc and /onramp/register; we run conversion and LP/swap in backend; mint proceeds once USDC→XLM conversion succeeds.
+ *
+ * FEE MECHANICS & RESERVE RATIO:
+ * - Mint fees are retained in protocol reserves (NOT passed to fintech partners)
+ * - When user deposits $100: reserve gets $100, user minted ~$99.70 of ACBU (0.3% fee)
+ * - This creates over-collateralization: $100 backing $99.70 = ~100.3% ratio
+ * - Fees accumulate over time to reach/maintain 103-105% reserve ratio target
+ * - See docs/fee-destination.md for detailed explanation
  */
 import { Response, NextFunction } from "express";
 import { z } from "zod";
@@ -274,6 +281,28 @@ export async function mintFromUsdcInternal(
       });
     }
 
+    // Audit trail: record USDC mint completion (W10-OBS-006)
+    await logAudit({
+      eventType: "transaction",
+      entityType: "transaction",
+      entityId: tx.id,
+      action: "mint_completed",
+      newValue: {
+        type: "mint",
+        source: "usdc_deposit",
+        walletAddress: walletAddress ? "***" : undefined,
+        usdcAmount: usdcDecimal.toString(),
+        acbuAmount: acbuDecimal.toString(),
+        blockchainTxHash: result.transactionHash,
+      },
+      performedBy: userId,
+    }).catch((auditErr) => {
+      logger.error("Audit log failed for mint_completed", {
+        transactionId: tx.id,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
+    });
+
     return { transactionId: tx.id, acbuAmount: acbuDecimal.toString() };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -290,6 +319,28 @@ export async function mintFromUsdcInternal(
         rateSnapshot: { error: message, at: new Date().toISOString() },
       },
     });
+
+    // Audit trail: record USDC mint failure (W10-OBS-006)
+    await logAudit({
+      eventType: "transaction",
+      entityType: "transaction",
+      entityId: tx.id,
+      action: "mint_failed",
+      newValue: {
+        type: "mint",
+        source: "usdc_deposit",
+        walletAddress: walletAddress ? "***" : undefined,
+        usdcAmount: usdcDecimal.toString(),
+        error: message,
+      },
+      performedBy: userId,
+    }).catch((auditErr) => {
+      logger.error("Audit log failed for mint_failed", {
+        transactionId: tx.id,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
+    });
+
     throw err;
   }
 }
@@ -533,6 +584,28 @@ export async function depositFromBasketCurrency(
           },
         },
       });
+
+      // Audit trail: record deposit/mint failure (W10-OBS-006)
+      await logAudit({
+        eventType: "transaction",
+        entityType: "transaction",
+        entityId: tx.id,
+        action: "deposit_failed",
+        newValue: {
+          type: "mint",
+          currency,
+          amount: Number(amountDecimal.toString()),
+          wallet_address: wallet_address ? "***" : undefined,
+          error: message,
+        },
+        performedBy: req.apiKey?.userId ?? undefined,
+      }).catch((auditErr) => {
+        logger.error("Audit log failed for deposit_failed", {
+          transactionId: tx.id,
+          error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+        });
+      });
+
       throw err;
     }
 

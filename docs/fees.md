@@ -4,6 +4,8 @@
 
 The ACBU platform implements a dynamic fee structure that adjusts based on reserve health and currency-specific reserve weights. This document maps the code-level implementation to the business requirements.
 
+**Fee Destination**: All fees are retained in protocol reserves to build and maintain the 103-105% over-collateralization target. See [fee-destination.md](./fee-destination.md) for detailed explanation of how fees contribute to reserve ratio math.
+
 ## Fee Types
 
 ### 1. Mint Fees
@@ -100,6 +102,25 @@ The function:
 - Buy Rate: `midRate * (1 - spread/2)` - User pays slightly more
 - Sell Rate: `midRate * (1 + spread/2)` - User receives slightly less
 
+### 4. Merchant Payments & Acceptance Fees
+
+Merchant checkout transactions follow a specialized fee model distinct from P2P transfers and remittance mint/burn corridors:
+
+| Fee Component | Rate | Paid By | Recipient / Allocation | Description |
+|---------------|------|---------|------------------------|-------------|
+| **Payment Fee** | FREE (0.00%) | Payer / Customer | N/A | Customers paying merchants in ACBU pay zero platform fee |
+| **Merchant Acceptance Fee** | 20 BPS (0.20%) | Merchant | ACBU Protocol Reserve / Treasury | Incurred by the merchant per accepted transaction; allocated to protocol operations, reserve maintenance, and ecosystem infrastructure |
+| **Merchant Withdrawal (Burn)** | Dynamic (5–200 BPS; base 30 BPS / 0.30%) | Merchant | ACBU Protocol Reserve / Treasury | Standard burn fee applied when merchant liquidates ACBU to local fiat (e.g., 0.30% under normal reserve weights) |
+
+#### Merchant-Flow Fee Assumption in Financial Projections
+
+- **Remittance / Standard Flow (Two-Sided)**: User deposits fiat/USDC (mint fee: 0.30%) and recipient liquidates to fiat (burn fee: 0.30%), generating **0.60% (60 BPS)** in total per-tx volume revenue across both sides.
+- **Merchant Flow (Corrected Projection)**:
+  - Acceptance fee: **0.20% (20 BPS)** on transaction volume (payer side is FREE).
+  - Off-ramp / withdrawal (optional/subsequent): When merchants liquidate ACBU into local fiat, standard withdrawal burn fee applies (typically **0.30% (30 BPS)** under normal 85–115% reserve levels).
+  - **Total Per-Transaction Fee**: **0.20%** at payment point, or **0.50% (50 BPS)** total if merchant withdraws 100% of receipts immediately to fiat.
+  - Projections must **not** assume 0.60% across all volume: merchant-flow transaction volume yields 0.20%–0.50% total fee revenue, preventing overstatement of merchant-flow revenue projections.
+
 ## Economic Incentives
 
 ### Mint Fee Logic
@@ -111,6 +132,8 @@ The mint fee structure creates the following incentives:
 
 This protects the system from becoming under-collateralized.
 
+**Fee Destination**: Mint fees are retained in protocol reserves. When a user deposits $100, the full $100 enters reserves but only $99.70 worth of ACBU is minted (assuming 30 BPS fee). This creates ~100.3% backing from each mint transaction, contributing to the 103-105% target reserve ratio.
+
 ### Burn Fee Logic
 
 The burn fee structure creates currency-specific rebalancing incentives:
@@ -121,17 +144,7 @@ The burn fee structure creates currency-specific rebalancing incentives:
 
 This automatically incentivizes users to help maintain the target basket composition.
 
-### Rebalancing Fee Model vs Flat Fee Model Alignment
-
-The ACBU architecture clarifies the distinction between user-facing operations, operational reserve rebalancing, and fee structures:
-
-- **Baseline / Standard Fee**: The core transaction fee across general documentation, user flows, and pricing formulas is standard **0.30% (30 BPS)** for both minting and burning in normal operating conditions (reserve ratio ≥ 1.02 and currency reserve weight between 85% and 115% of target).
-- **Operational Dynamic Rebalancing**: Rather than applying opaque variable fees (+/- 0.5% arbitrary discounts/penalties), all dynamic adjustments are strictly governed by reserve thresholds:
-  - **Minting**: 30 BPS (healthy reserves ≥ 1.02) to 50 BPS (stressed reserves < 1.02), capped at 100 BPS.
-  - **Burning / Withdrawals**: 30 BPS standard, 5 BPS discount for high-reserve currencies (>115% of target) to incentivize outflows, and 200 BPS penalty for low-reserve currencies (<85% of target) to protect liquidity.
-  - **Automated Protocol Rebalancing**: Daily operational rebalancing (executed at 00:00 UTC by `RebalancingEngine`) performs protocol-level swaps via fintech partner liquidity and does not charge hidden ad-hoc fees to regular user transfers.
-
-All user flows and API quotes surface the exact effective fee dynamically retrieved via `getMintFeeBps()` and `getBurnFeeBps(currency)` before transaction execution.
+**Fee Destination**: Burn fees are also retained in reserves, slightly increasing the reserve ratio when burns occur.
 
 ## Sanity Checks
 
@@ -192,7 +205,7 @@ RESERVE_ALERT_THRESHOLD=1.02
 
 | Date | Version | Changes | Auditor |
 |------|---------|---------|---------|
-| 2026-10-19 | 2.1 | Reconciled fee model: explicitly documented operational rebalancing mechanics vs flat 0.30% base fee, clarifying discount/penalty dynamics. | Systems Architect |
+| 2026-10-18 | 2.1 | Corrected merchant-flow fee assumption in projections (0.20%–0.50% vs 0.60%). Formally documented 0.20% acceptance fee and designated ACBU Protocol Reserve / Treasury as recipient. | Protocol / Financial Spec Review |
 | 2026-04-25 | 2.0 | Fixed burn fee logic: Changed high reserve fee from 10 to 5 BPS. Added sanity checks. Added fail-fast error handling. | Senior Backend Engineer |
 | 2026-01-29 | 1.0 | Initial implementation | - |
 
