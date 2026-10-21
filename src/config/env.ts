@@ -170,12 +170,11 @@ const envSchema = z.object({
   BULK_TRANSFER_MAX_ROWS: z.coerce.number().int().positive().default(5000),
 
   // Notifications (email / SMS)
-  // AB-045 (#995): the weekly weight-drift audit job addresses its report to
-  // `config.notification.alertEmail`, which is populated from this variable.
-  // The key was never declared in the schema, so Zod stripped it from the
-  // parsed env and the audit email silently never sent. Declared here as an
-  // optional, trimmed, comma-separated admin distribution list.
+  // AB-045 (#995) / W10-B-016: the weekly weight-drift audit job addresses its report to
+  // `config.notification.alertEmail`, which is populated from this variable or ADMIN_NOTIFICATION_EMAIL.
+  // Declared here as an optional, trimmed, comma-separated admin distribution list.
   NOTIFICATION_ALERT_EMAIL: z.string().trim().optional(),
+  ADMIN_NOTIFICATION_EMAIL: z.string().trim().optional(),
 
   // ---------------------------------------------------------------------------
   // Previously-undeclared variables
