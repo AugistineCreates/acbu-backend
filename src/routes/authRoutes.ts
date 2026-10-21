@@ -118,12 +118,9 @@ import { authRateLimiter, apiKeyRateLimiter, twoFaRateLimiter } from "../middlew
  *                       format: uuid
  *                     stellar_address:
  *                       type: string
- *                     wallet_created:
+ *                     wallet_enrollment_required:
  *                       type: boolean
- *                     passphrase:
- *                       type: string
- *                     encryption_method_required:
- *                       type: boolean
+ *                       description: True when the client must generate and enroll its own keypair
  *                 - type: object
  *                   description: 2FA required
  *                   properties:
