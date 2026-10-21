@@ -5,6 +5,7 @@
  * OTP (sms/email) is created and published to RabbitMQ OTP_SEND for delivery.
  */
 import bcrypt from "bcrypt";
+import axios from "axios";
 import { totp } from "otplib";
 import { randomUUID, createHash } from "crypto";
 import { config } from "../../config/env";
@@ -44,6 +45,25 @@ import {
 } from "../../errors/index";
 
 const DUMMY_HASH = "$2a$10$CwTycUXWue0Thq9StjUM0uEnOTWj2XOTl0pypEQuA7y2h2H6jX.m2"; // hash for 'dummy'
+
+export async function verifyCaptcha(token: string, ip?: string): Promise<boolean> {
+  const secret = config.auth.captchaSecret;
+  if (!secret || !token.trim()) return false;
+
+  const body = new URLSearchParams({ secret, response: token });
+  if (ip) body.set("remoteip", ip);
+
+  try {
+    const response = await axios.post(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      body,
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 5000 },
+    );
+    return response.data?.success === true;
+  } catch {
+    return false;
+  }
+}
 
 export interface SignupParams {
   username: string;
@@ -343,8 +363,9 @@ export async function signin(params: SigninParams): Promise<SigninResult> {
   if (status.requiresCaptcha && !captchaToken) {
     throw new CaptchaRequiredError();
   }
-
-  // TODO: Verify captchaToken here if provided
+  if (captchaToken && !(await verifyCaptcha(captchaToken, ip))) {
+    throw new CaptchaRequiredError();
+  }
 
   const user = await resolveUserByIdentifier(identifier);
 
