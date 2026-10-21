@@ -1,5 +1,9 @@
 # ACBU Fee Policy - Quick Reference Card
 
+**Fee Destination**: All fees (mint and burn) are retained in protocol reserves to achieve and maintain the 103-105% over-collateralization target. Fees are NOT passed through to fintech partners. See [docs/fee-destination.md](./fee-destination.md) for detailed explanation.
+
+---
+
 ## Mint Fees (Fiat → ACBU)
 
 | Condition | Fee | When to Apply |

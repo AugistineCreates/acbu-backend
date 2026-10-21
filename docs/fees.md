@@ -4,6 +4,8 @@
 
 The ACBU platform implements a dynamic fee structure that adjusts based on reserve health and currency-specific reserve weights. This document maps the code-level implementation to the business requirements.
 
+**Fee Destination**: All fees are retained in protocol reserves to build and maintain the 103-105% over-collateralization target. See [fee-destination.md](./fee-destination.md) for detailed explanation of how fees contribute to reserve ratio math.
+
 ## Fee Types
 
 ### 1. Mint Fees
@@ -111,6 +113,8 @@ The mint fee structure creates the following incentives:
 
 This protects the system from becoming under-collateralized.
 
+**Fee Destination**: Mint fees are retained in protocol reserves. When a user deposits $100, the full $100 enters reserves but only $99.70 worth of ACBU is minted (assuming 30 BPS fee). This creates ~100.3% backing from each mint transaction, contributing to the 103-105% target reserve ratio.
+
 ### Burn Fee Logic
 
 The burn fee structure creates currency-specific rebalancing incentives:
@@ -120,6 +124,8 @@ The burn fee structure creates currency-specific rebalancing incentives:
 3. **High Reserves (>115%)**: Low fee (5 BPS) encourages withdrawals to rebalance the basket
 
 This automatically incentivizes users to help maintain the target basket composition.
+
+**Fee Destination**: Burn fees are also retained in reserves, slightly increasing the reserve ratio when burns occur.
 
 ## Sanity Checks
 
