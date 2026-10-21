@@ -68,6 +68,8 @@ export interface ProcessBulkTransferOptions {
   chunkSize?: number;
   /** Maximum file size in bytes. Default 10MB. */
   maxFileSizeBytes?: number;
+  /** Maximum number of data rows per CSV. Default 5000. */
+  maxRows?: number;
   /** Allowed MIME types. Default ['text/csv', 'text/plain'] */
   allowedMimeTypes?: string[];
 }
