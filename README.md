@@ -93,7 +93,7 @@ pnpm prisma:seed
 pnpm dev
 ```
 
-The server will start on `http://localhost:3000` (or the port specified in `.env`).
+The server will start on `http://localhost:5000` (or the port specified in `.env`).
 
 Nodemon will automatically restart the server when you make changes to the code.
 
@@ -111,6 +111,20 @@ Nodemon will automatically restart the server when you make changes to the code.
 - `pnpm prisma:migrate` - Run database migrations
 - `pnpm prisma:studio` - Open Prisma Studio
 - `pnpm prisma:seed` - Seed database with initial data
+- `pnpm changelog` - Regenerate the full CHANGELOG.md from all git history
+- `pnpm changelog:update` - Append the latest unreleased changes to CHANGELOG.md (after tagging a release)
+
+## Release & Versioning Strategy
+
+The backend follows semantic versioning and expects all release artifacts to be tagged consistently.
+
+- Versioning format: `vMAJOR.MINOR.PATCH` and optional pre-release suffixes such as `v1.2.0-rc.1`
+- `MAJOR`: breaking API or protocol changes
+- `MINOR`: backward-compatible features or new endpoints
+- `PATCH`: bug fixes, hardening, and compatibility patches
+- Release changes should be documented in `CHANGELOG.md` and reflected in the Git tag workflow used by the release pipeline
+
+For the maintainers' checklist and the recommended release flow, see [RELEASE.md](./RELEASE.md) and [docs/RELEASING.md](./docs/RELEASING.md).
 
 ## Project Structure
 
@@ -135,9 +149,19 @@ backend/
 ## API Documentation
 
 Once the server is running, API documentation is available at:
-- Swagger UI: `http://localhost:3000/api-docs` (development only, disabled in production for security)
+- Swagger UI: `http://localhost:5000/api-docs` (development only, disabled in production for security)
 
 **Segment routes** (require API key with segment scope): `/v1/p2p`, `/v1/sme`, `/v1/international`, `/v1/salary`, `/v1/enterprise`, `/v1/savings`, `/v1/lending`, `/v1/gateway`, `/v1/bills`. For a full list of routes and smart contracts, see the repository docs in the `docs/` folder.
+
+## Signature Encoding Conventions
+
+This API uses different signature encodings depending on the protocol and transport layer. The encoding should be treated as part of the contract and documented consistently to avoid verification failures.
+
+- Webhook HMAC signatures: hex strings, typically generated as `crypto.createHmac(...).digest("hex")` and verified by comparing `Buffer.from(signature, "hex")`
+- JWT and URL-safe token payloads: base64url encoding, such as the standard JSON Web Token header/payload format
+- Ed25519/Stellar keys: base32/checksum encoded public keys or raw secret-key formats, not plain hex unless the specific library or API explicitly requires it
+
+When a verifier expects hex, the sender must send a lowercase or uppercase hex digest exactly as specified; when a verifier expects base64url, the value must be base64url-encoded and not hex. The same API should not mix encodings for the same signing scheme without explicit documentation.
 
 ## Database Management
 
@@ -173,9 +197,9 @@ pnpm test:coverage
 
 ## Environment Variables
 
-**Full list:** See [ENV_VARS.md](ENV_VARS.md). No mock data; all values must be real or explicitly empty.
+**Full list:** See [ENV_VARS.md](./ENV_VARS.md). No mock data; all values must be real or explicitly empty.
 
-**Required:** `DATABASE_URL` (migrations / fallback), `MONGODB_URI` (MongoDB Atlas), `RABBITMQ_URL`, `JWT_SECRET`. Runtime DB: **Prisma Accelerate** via `PRISMA_ACCELERATE_URL` (see [ENV_VARS.md](ENV_VARS.md)).
+**Required:** `DATABASE_URL` (migrations / fallback), `MONGODB_URI` (MongoDB Atlas), `RABBITMQ_URL`, `JWT_SECRET`. Runtime DB: **Prisma Accelerate** via `PRISMA_ACCELERATE_URL` (see [ENV_VARS.md](./ENV_VARS.md)).
 
 **Fintech:** Flutterwave (`FLUTTERWAVE_SECRET_KEY`, etc.), Paystack (`PAYSTACK_SECRET_KEY`), MTN MoMo (`MTN_MOMO_SUBSCRIPTION_KEY`, `MTN_MOMO_API_USER_ID`, `MTN_MOMO_API_KEY`). Optional: `FINTECH_CURRENCY_PROVIDERS`.
 
@@ -286,3 +310,5 @@ The CI pipeline:
 ## License
 
 Apache License 2.0
+
+<!-- Verified issues #1137, #1140, #1146, #1150 -->

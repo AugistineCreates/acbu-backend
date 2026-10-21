@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { config } from "../config/env";
 import { logger } from "../config/logger";
@@ -17,6 +18,7 @@ import type {
 
 const DEFAULT_CHUNK_SIZE = config.bulkTransfer.chunkSize;
 const DEFAULT_MAX_FILE_SIZE_BYTES = config.bulkTransfer.maxFileSizeBytes;
+const DEFAULT_MAX_ROWS = config.bulkTransfer.maxRows;
 
 function bufferFromInput(input: Buffer | NodeJS.ReadableStream): Promise<Buffer> {
   if (Buffer.isBuffer(input)) {
@@ -96,10 +98,7 @@ function parseCsvBuffer(buffer: Buffer): { headers: string[]; rows: Record<strin
   const missing = required.filter((header) => !headers.includes(header));
 
   if (missing.length > 0) {
-    throw new AppError(
-      `CSV missing required headers: ${missing.join(", ")}`,
-      400,
-    );
+    throw new AppError(`CSV missing required headers: ${missing.join(", ")}`, 400);
   }
 
   const rows = lines.slice(1).map((line) => {
@@ -149,6 +148,16 @@ async function processRow(
   }
 
   try {
+    const sender = await prisma.user.findUnique({ where: { id: senderUserId } });
+    if (!sender) {
+      return {
+        rowIndex,
+        idempotencyKey,
+        status: "failure",
+        errorMessage: "Sender user not found",
+      };
+    }
+
     const transaction = await prisma.transaction.create({
       data: {
         userId: senderUserId,
@@ -215,6 +224,7 @@ export async function processBulkTransfer(
 ): Promise<BulkTransferJobResult> {
   const chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
   const maxFileSizeBytes = options.maxFileSizeBytes ?? DEFAULT_MAX_FILE_SIZE_BYTES;
+  const maxRows = options.maxRows ?? DEFAULT_MAX_ROWS;
 
   const buffer = await bufferFromInput(params.fileContent);
   if (buffer.length > maxFileSizeBytes) {
@@ -222,6 +232,10 @@ export async function processBulkTransfer(
   }
 
   const { rows } = parseCsvBuffer(buffer);
+
+  if (rows.length > maxRows) {
+    throw new AppError(`CSV exceeds maximum of ${maxRows} rows (received ${rows.length})`, 413);
+  }
 
   const job = await prisma.bulkTransferJob.create({
     data: {
@@ -268,12 +282,7 @@ export async function processBulkTransfer(
         }
 
         results.push(
-          await processRow(
-            params.organizationId,
-            params.senderUserId,
-            validation.data,
-            start + i,
-          ),
+          await processRow(params.organizationId, params.senderUserId, validation.data, start + i),
         );
       }
       return results;
@@ -302,7 +311,7 @@ export async function processBulkTransfer(
       completedAt: new Date(),
       successCount,
       failureCount,
-      failureReport,
+      failureReport: failureReport as unknown as Prisma.InputJsonValue,
     },
   });
 
@@ -344,6 +353,6 @@ export async function getBulkTransferJob(jobId: string, organizationId: string) 
     status: job.status as BulkTransferJobStatus,
     createdAt: job.createdAt.toISOString(),
     completedAt: job.completedAt?.toISOString(),
-    failureReport: (job.failureReport as BulkTransferRowResult[]) ?? [],
+    failureReport: (job.failureReport as unknown as BulkTransferRowResult[]) ?? [],
   };
 }

@@ -4,6 +4,8 @@
 
 The ACBU platform implements a dynamic fee structure that adjusts based on reserve health and currency-specific reserve weights. This document maps the code-level implementation to the business requirements.
 
+**Fee Destination**: All fees are retained in protocol reserves to build and maintain the 103-105% over-collateralization target. See [fee-destination.md](./fee-destination.md) for detailed explanation of how fees contribute to reserve ratio math.
+
 ## Fee Types
 
 ### 1. Mint Fees
@@ -49,14 +51,14 @@ Burn fees are charged when users convert ACBU tokens back to fiat currency. The 
 | Reserve Weight (% of Target) | Fee (BPS) | Fee (%) | Business Logic |
 |------------------------------|-----------|---------|----------------|
 | < 85% | 200 | 2.00% | Low reserves - strongly discourage burns |
-| 85% - 115% | 10 | 0.10% | Normal range - standard fee |
+| 85% - 115% | 30 | 0.30% | Normal range - standard fee |
 | > 115% | 5 | 0.05% | High reserves - encourage burns for rebalancing |
 
 #### Code Constants
 
 ```typescript
 // Location: src/services/feePolicy/feePolicyService.ts
-const BASE_BURN_FEE_BPS = 10;           // Normal fee (85-115%)
+const BASE_BURN_FEE_BPS = 30;           // Normal fee (85-115%)
 const LOW_RESERVE_BURN_FEE_BPS = 200;   // Low reserve fee (<85%)
 const HIGH_RESERVE_BURN_FEE_BPS = 5;    // High reserve fee (>115%)
 const LOW_RESERVE_THRESHOLD_PCT = 85;   // Lower boundary
@@ -111,15 +113,19 @@ The mint fee structure creates the following incentives:
 
 This protects the system from becoming under-collateralized.
 
+**Fee Destination**: Mint fees are retained in protocol reserves. When a user deposits $100, the full $100 enters reserves but only $99.70 worth of ACBU is minted (assuming 30 BPS fee). This creates ~100.3% backing from each mint transaction, contributing to the 103-105% target reserve ratio.
+
 ### Burn Fee Logic
 
 The burn fee structure creates currency-specific rebalancing incentives:
 
 1. **Low Reserves (<85% of target)**: High fee (200 BPS) strongly discourages withdrawals of scarce currencies
-2. **Normal Reserves (85-115%)**: Standard fee (10 BPS) allows normal operations
+2. **Normal Reserves (85-115%)**: Standard fee (30 BPS) allows normal operations
 3. **High Reserves (>115%)**: Low fee (5 BPS) encourages withdrawals to rebalance the basket
 
 This automatically incentivizes users to help maintain the target basket composition.
+
+**Fee Destination**: Burn fees are also retained in reserves, slightly increasing the reserve ratio when burns occur.
 
 ## Sanity Checks
 
@@ -156,8 +162,8 @@ Location: `src/services/feePolicy/__tests__/feePolicyService.pbt.test.ts`
 
 To run property-based tests:
 ```bash
-npm install --save-dev fast-check
-npm test -- feePolicyService.pbt.test.ts
+pnpm add -D fast-check
+pnpm test -- feePolicyService.pbt.test.ts
 ```
 
 ## Configuration
