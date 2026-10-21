@@ -153,6 +153,16 @@ Once the server is running, API documentation is available at:
 
 **Segment routes** (require API key with segment scope): `/v1/p2p`, `/v1/sme`, `/v1/international`, `/v1/salary`, `/v1/enterprise`, `/v1/savings`, `/v1/lending`, `/v1/gateway`, `/v1/bills`. For a full list of routes and smart contracts, see the repository docs in the `docs/` folder.
 
+## Signature Encoding Conventions
+
+This API uses different signature encodings depending on the protocol and transport layer. The encoding should be treated as part of the contract and documented consistently to avoid verification failures.
+
+- Webhook HMAC signatures: hex strings, typically generated as `crypto.createHmac(...).digest("hex")` and verified by comparing `Buffer.from(signature, "hex")`
+- JWT and URL-safe token payloads: base64url encoding, such as the standard JSON Web Token header/payload format
+- Ed25519/Stellar keys: base32/checksum encoded public keys or raw secret-key formats, not plain hex unless the specific library or API explicitly requires it
+
+When a verifier expects hex, the sender must send a lowercase or uppercase hex digest exactly as specified; when a verifier expects base64url, the value must be base64url-encoded and not hex. The same API should not mix encodings for the same signing scheme without explicit documentation.
+
 ## Database Management
 
 ### Prisma Studio
