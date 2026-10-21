@@ -64,6 +64,21 @@
 
 ---
 
+## Merchant Payments & Flow Assumptions
+
+| Flow / Operation | Rate | Paid By | Recipient |
+|------------------|------|---------|-----------|
+| **Customer Payment** | **FREE** (0.00%) | Customer | N/A |
+| **Merchant Acceptance Fee** | **20 BPS** (0.20%) | Merchant | ACBU Protocol Reserve / Treasury |
+| **Merchant Withdrawal (Burn)** | **30 BPS** (0.30% base) | Merchant | ACBU Protocol Reserve / Treasury |
+
+### Projection Assumption Correction:
+- **Two-Sided Remittance Flow**: 0.30% (mint) + 0.30% (burn) = **0.60% (60 BPS)** per-tx volume.
+- **Merchant Flow**: **0.20% (20 BPS)** on checkout volume (payer is free). Total per-tx fees are **0.20%–0.50%** (0.20% acceptance + up to 0.30% withdrawal burn), **not 0.60%**. Projections must separate merchant volume to avoid overstating revenue.
+
+---
+
+
 ## Sanity Bounds
 
 All fees must be within:
