@@ -385,7 +385,7 @@ describe("bulk transfer service", () => {
         senderUserId: "user-1",
         fileContent: Buffer.from(csv),
       },
-      { chunkSize: 250 },
+      { chunkSize: 250, maxRows: 10000 },
     );
     const elapsed = Date.now() - startedAt;
 
