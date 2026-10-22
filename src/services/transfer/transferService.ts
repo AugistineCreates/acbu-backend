@@ -13,8 +13,10 @@ import { getAcbuAsset } from "../../config/acbuAsset";
 import { StellarFeeSurgeError } from "../../errors";
 import crypto from "crypto";
 import { reserveWalletVersion, fetchWalletBalance } from "../wallet/walletStateService";
+import { config } from "../../config/env";
 
 import { logger, logFinancialEvent } from "../../config/logger";
+import { logAudit } from "../audit";
 import type { CreateTransferParams, CreateTransferOptions, CreateTransferResult } from "./types";
 
 /** Parse a non-negative amount string into 7-decimal smallest units to avoid float drift. */
@@ -63,6 +65,85 @@ const MAX_SUBMIT_ATTEMPTS = 3;
  * several times while the network fee is moving.
  */
 const PAYMENT_VALIDITY_SECONDS = 60;
+
+/**
+ * #1142: Travel Rule compliance check for P2P transfers.
+ *
+ * Direct P2P transfers between non-custodied wallets cannot satisfy Travel Rule
+ * originator/beneficiary data requirements because the blockchain layer only
+ * carries addresses, not KYC/identity information. This creates a compliance gap
+ * for transfers above regulatory thresholds.
+ *
+ * The check logs a warning when the transfer amount exceeds the threshold.
+ * When enforcement is enabled via TRAVEL_RULE_ENFORCE=true, it rejects transfers
+ * that cannot be verified as compliant (e.g., direct wallet-to-wallet transfers).
+ *
+ * @param amountAcbu - Transfer amount in ACBU
+ * @param isVaspIntermediated - Whether the transfer is intermediated by a VASP
+ * @param recipientAddress - The recipient's Stellar address
+ * @returns true if compliant, false if non-compliant and enforcement is enabled
+ */
+function checkTravelRuleCompliance(
+  amountAcbu: string,
+  isVaspIntermediated: boolean,
+  recipientAddress: string,
+): boolean {
+  const threshold = config.travelRule.thresholdAcbu;
+  const amount = Number.parseFloat(amountAcbu);
+
+  // Only check amounts above the threshold
+  if (amount <= threshold) {
+    return true;
+  }
+
+  const { enforce, mode } = config.travelRule;
+
+  // Log compliance check for audit trail
+  logger.warn("Travel Rule compliance check", {
+    amountAcbu,
+    threshold,
+    enforce,
+    mode,
+    isVaspIntermediated,
+    recipientAddress,
+  });
+
+  // In allowlist mode, only VASP-intermediated transfers are allowed above threshold
+  if (mode === "allowlist" && !isVaspIntermediated) {
+    if (enforce) {
+      logger.error("Travel Rule violation: direct P2P transfer above threshold not allowed in allowlist mode", {
+        amountAcbu,
+        threshold,
+        recipientAddress,
+      });
+      return false;
+    }
+    logger.warn("Travel Rule limitation: direct P2P transfer above threshold (allowlist mode, not enforced)", {
+      amountAcbu,
+      threshold,
+      recipientAddress,
+    });
+  }
+
+  // In strict mode, all transfers above threshold require VASP intermediation
+  if (mode === "strict" && !isVaspIntermediated) {
+    if (enforce) {
+      logger.error("Travel Rule violation: direct P2P transfer above threshold not allowed in strict mode", {
+        amountAcbu,
+        threshold,
+        recipientAddress,
+      });
+      return false;
+    }
+    logger.warn("Travel Rule limitation: direct P2P transfer above threshold (strict mode, not enforced)", {
+      amountAcbu,
+      threshold,
+      recipientAddress,
+    });
+  }
+
+  return true;
+}
 
 /**
  * Horizon/Stellar result codes that unambiguously mean "the fee on this
@@ -388,6 +469,18 @@ export async function createTransfer(
     throw new Error("Cannot transfer to yourself");
   }
 
+  // #1142: Travel Rule compliance check
+  // Direct P2P transfers (non-VASP-intermediated) above threshold are flagged/rejected
+  const isVaspIntermediated = false; // Current implementation is direct wallet-to-wallet
+  const isTravelRuleCompliant = checkTravelRuleCompliance(amount, isVaspIntermediated, recipientAddress);
+  if (!isTravelRuleCompliant) {
+    throw new Error(
+      `Transfer amount ${amount} ACBU exceeds Travel Rule threshold of ${config.travelRule.thresholdAcbu} ACBU. ` +
+        "Direct P2P transfers cannot satisfy Travel Rule requirements. " +
+        "Use on/off-ramp services or enable VASP intermediation for compliance.",
+    );
+  }
+
   let tx;
   try {
     tx = await prisma.transaction.create({
@@ -439,6 +532,26 @@ export async function createTransfer(
     correlationId,
   });
 
+  // Audit trail: record that a transfer was initiated (W10-OBS-006)
+  await logAudit({
+    eventType: "transaction",
+    entityType: "transaction",
+    entityId: tx.id,
+    action: "transfer_initiated",
+    newValue: {
+      type: "transfer",
+      recipientAddress,
+      amount: amount,
+      currency: "ACBU",
+    },
+    performedBy: senderUserId,
+  }).catch((auditErr) => {
+    logger.error("Audit log failed for transfer_initiated", {
+      transactionId: tx.id,
+      error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+    });
+  });
+
   let status = "pending";
   let blockchainTxHash: string | null = null;
 
@@ -467,6 +580,29 @@ export async function createTransfer(
       correlationId,
       providerRef: blockchainTxHash,
     });
+
+    // Audit trail: record transfer completion (W10-OBS-006)
+    await logAudit({
+      eventType: "transaction",
+      entityType: "transaction",
+      entityId: tx.id,
+      action: "transfer_completed",
+      newValue: {
+        type: "transfer",
+        status: "completed",
+        recipientAddress,
+        amount: amount,
+        currency: "ACBU",
+        blockchainTxHash,
+      },
+      performedBy: senderUserId,
+    }).catch((auditErr) => {
+      logger.error("Audit log failed for transfer_completed", {
+        transactionId: tx.id,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
+    });
+
     return {
       transactionId: tx.id,
       status,
@@ -511,6 +647,28 @@ export async function createTransfer(
           correlationId,
           providerRef: blockchainTxHash,
         });
+
+        // Audit trail: record transfer completion (W10-OBS-006)
+        await logAudit({
+          eventType: "transaction",
+          entityType: "transaction",
+          entityId: tx.id,
+          action: "transfer_completed",
+          newValue: {
+            type: "transfer",
+            status: "completed",
+            recipientAddress,
+            amount: amount,
+            currency: "ACBU",
+            blockchainTxHash,
+          },
+          performedBy: senderUserId,
+        }).catch((auditErr) => {
+          logger.error("Audit log failed for transfer_completed", {
+            transactionId: tx.id,
+            error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+          });
+        });
       } catch (err) {
         // A fee surge is a distinct, retryable condition: the payment was never
         // accepted, so nothing moved. Record it with its own error code instead
@@ -549,6 +707,29 @@ export async function createTransfer(
           correlationId,
           errorCode: isFeeSurge ? err.code : undefined,
           errorMessage: err instanceof Error ? err.message : String(err),
+        });
+
+        // Audit trail: record transfer failure (W10-OBS-006)
+        await logAudit({
+          eventType: "transaction",
+          entityType: "transaction",
+          entityId: tx.id,
+          action: "transfer_failed",
+          newValue: {
+            type: "transfer",
+            status: "failed",
+            recipientAddress,
+            amount: amount,
+            currency: "ACBU",
+            errorCode: isFeeSurge ? err.code : undefined,
+            errorMessage: err instanceof Error ? err.message : String(err),
+          },
+          performedBy: senderUserId,
+        }).catch((auditErr) => {
+          logger.error("Audit log failed for transfer_failed", {
+            transactionId: tx.id,
+            error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+          });
         });
 
         // A fee surge is retryable and no funds moved, so the caller is told
