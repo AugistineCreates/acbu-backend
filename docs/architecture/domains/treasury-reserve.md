@@ -103,7 +103,7 @@ erDiagram
 `ReserveHistory.transactionId` FK links reserve changes back to the causative `Transaction` (defined in the Transactions & Payments domain). `reason` values — `mint`, `burn`, `rebalance`, `conversion` — classify the change type. `previousAmount` and `newAmount` provide a complete before/after record.
 
 ### OracleRate aggregation
-Each `OracleRate` row aggregates rates from multiple sources for the same `currency` at a given `timestamp` (unique constraint). `centralBankRate`, `fintechRate`, and `forexRate` are the individual source inputs; `medianRate` is the consensus value used by the system; `twap24h` is the time-weighted average price over 24 hours for smoothing. `validatorSignatures` (omitted from diagram for clarity) stores cryptographic signatures from oracle validators.
+Each `OracleRate` row aggregates rates from multiple sources for the same `currency` at a given `timestamp` (unique constraint). `centralBankRate`, `fintechRate`, and `forexRate` are the individual source inputs; `medianRate` is the consensus value used by the system; `twap24h` is the time-weighted average price over 24 hours for smoothing. `validatorSignatures` (omitted from diagram for clarity) stores cryptographic signatures from oracle validators. `rawValues.reviewRequired` marks an emergency update (a move beyond the 5% per-update limit) and `rawValues.deviationFromPreviousRate` records the size of the move — see [Oracle rate updates and the 5% deviation rule](../../oracle-rate-updates.md).
 
 ### AcbuRate price snapshots
 `AcbuRate` records the ACBU token price in USD and a set of African currencies (NGN, KES, ZAR, RWF, GHS, EGP, MAD, TZS, UGX, XOF) at a point in time. `change24hUsd` is a pre-computed percentage change used by client apps for display.
