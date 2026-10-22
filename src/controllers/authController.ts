@@ -124,10 +124,8 @@ export async function postSignin(
       api_key: result.api_key,
       user_id: result.user_id,
       stellar_address: result.stellar_address,
+      wallet_enrollment_required: result.wallet_enrollment_required,
     };
-    if (result.wallet_created) payload.wallet_created = true;
-    if (result.passphrase) payload.passphrase = result.passphrase;
-    if (result.encryption_method_required) payload.encryption_method_required = true;
     if (result.refresh_token) payload.refresh_token = result.refresh_token;
     if (result.refresh_token_expires_at)
       payload.refresh_token_expires_at = result.refresh_token_expires_at;
@@ -185,10 +183,8 @@ export async function postVerify2fa(
       api_key: result.api_key,
       user_id: result.user_id,
       stellar_address: result.stellar_address,
+      wallet_enrollment_required: result.wallet_enrollment_required,
     };
-    if (result.wallet_created) payload.wallet_created = true;
-    if (result.passphrase) payload.passphrase = result.passphrase;
-    if (result.encryption_method_required) payload.encryption_method_required = true;
     if (result.refresh_token) payload.refresh_token = result.refresh_token;
     if (result.refresh_token_expires_at)
       payload.refresh_token_expires_at = result.refresh_token_expires_at;

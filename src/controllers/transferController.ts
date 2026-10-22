@@ -76,6 +76,10 @@ export async function postTransfers(
     if (e instanceof Error && e.message === "Cannot transfer to yourself") {
       return next(new AppError(e.message, 400));
     }
+    // #1142: Travel Rule compliance error
+    if (e instanceof Error && e.message.includes("Travel Rule")) {
+      return next(new AppError(e.message, 422));
+    }
     next(e);
   }
 }
