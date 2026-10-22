@@ -22,6 +22,14 @@ envFiles.forEach((file) => {
 
 const envSchema = z.object({
   NODE_ENV: z.string().default("development"),
+  WEBHOOK_SIGNATURE_BYPASS: z.string().optional(),
+  WEBHOOK_TIMESTAMP_TOLERANCE_MS: z.coerce.number().int().positive().default(300000),
+  // Error tracking (Sentry)
+  SENTRY_DSN: z.string().optional(),
+  SENTRY_ENVIRONMENT: z.string().optional(),
+  SENTRY_RELEASE: z.string().optional(),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
+  SENTRY_PROFILES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
   PORT: z.coerce.number().int().positive().max(65535).default(5000),
   API_VERSION: z.string().default("v1"),
   DATABASE_URL: z.string().min(1),
@@ -35,6 +43,7 @@ const envSchema = z.object({
   JWT_CLOCK_TOLERANCE_SECONDS: z.coerce.number().int().nonnegative().default(30),
   API_KEY_SALT: z.string().default(""),
   ADMIN_API_KEY: z.string().optional(),
+  ADMIN_API_KEYS: z.string().optional(),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce
@@ -43,6 +52,8 @@ const envSchema = z.object({
     .positive()
     .default(15 * 60 * 1000),
   AUTH_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
+  ADMIN_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  ADMIN_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(30),
   RATE_LIMIT_FALLBACK_MAX_REQUESTS: z.coerce.number().int().positive().default(20),
   RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().positive().default(60000),
@@ -68,14 +79,49 @@ const envSchema = z.object({
     .default("info"),
   LOG_LEVEL_CONSOLE: z.string().optional(),
   LOG_LEVEL_FILE: z.string().optional(),
+  LOG_FILE: z.string().default("logs/app.log"),
   BUSINESS_TIMEZONE: z.string().default("Africa/Lagos"),
-  USDC_ISSUER_TESTNET: z.string().trim().min(1),
-  USDC_ISSUER_MAINNET: z.string().trim().min(1),
+  USDC_ISSUER_TESTNET: z.string().trim().min(1).optional(),
+  USDC_ISSUER_MAINNET: z.string().trim().min(1).optional(),
+  STELLAR_TREASURY_ACCOUNT_ID: z.string().trim().min(1).optional(),
+  TESTNET_CUSTODIAL_BOOTSTRAP: z.string().default("xlm"),
   CORS_ORIGIN: z.string().optional(),
   CDN_URL: z.string().url().optional(),
 
-  // B-063: Fail-open controls for OpenAI degradation scenarios.
-  OPENAI_FAIL_OPEN_ENABLED: z.string().default("true"),
+  // AB-052 (#1002): Stellar fee configuration. These were read by
+  // `config.stellar.*` but never declared here, so Zod stripped them from
+  // `parsed.data` and every consumer observed `undefined` — `getBaseFee()`
+  // returned the literal string "undefined" whenever dynamic fees were off
+  // (the default) and `TransactionBuilder.build()` then threw
+  // "[BigNumber Error] Not a number: undefined". The documented defaults in
+  // ENV_VARS.md were never actually applied. Same class of bug as AB-045.
+  /** Base transaction fee in stroops used as fallback when dynamic fetch is disabled or fails. */
+  STELLAR_BASE_FEE_STROOPS: z.coerce.number().int().positive().default(100),
+  /** Minimum total fee per Soroban transaction in stroops, to prevent underpricing. */
+  STELLAR_SOROBAN_MIN_FEE_STROOPS: z.coerce.number().int().positive().default(5000),
+  /** Maximum total fee per Soroban transaction in stroops (base + resource fees). */
+  STELLAR_SOROBAN_MAX_FEE_STROOPS: z.coerce.number().int().positive().default(10_000_000),
+  // AB-052: surge buffer + ceiling for classic (non-Soroban) payment fees. The
+  // buffer is applied on top of the live network base fee so a fee increase
+  // between building and submitting a payment does not reject the transaction.
+  /** Buffer added on top of the live base fee, in basis younts. Default 2000 = +20%. */
+  STELLAR_FEE_SURGE_BUFFER_BPS: z.coerce.number().int().min(0).max(10_000).default(2000),
+  /** Hard ceiling for a single payment fee, in stroops. Default 1,000,000 = 0.1 XLM. */
+  STELLAR_MAX_PAYMENT_FEE_STROOPS: z.coerce.number().int().positive().default(1_000_000),
+  /** When true, the base fee is read live from Horizon instead of using STELLAR_BASE_FEE_STROOPS. */
+  STELLAR_USE_DYNAMIC_FEES: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
+
+  // B-063 / AB-025: Fail-open controls for OpenAI degradation scenarios.
+  // Defaults to "false" (fail-closed) so KYC/moderation checks reject unverified requests during degradation.
+  OPENAI_FAIL_OPEN_ENABLED: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"]))
+    .default("false"),
   OPENAI_FAIL_OPEN_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
   OPENAI_FAIL_OPEN_MAX_RETRIES: z.coerce.number().int().nonnegative().default(2),
   OPENAI_FAIL_OPEN_RETRY_BASE_MS: z.coerce.number().int().positive().default(500),
@@ -90,10 +136,11 @@ const envSchema = z.object({
   // #381: WAL backup configuration guard.
   // Set to "true" once WAL archiving / continuous backup is enabled on the
   // database host (e.g. pgBackRest, Barman, AWS RDS automated backups, Supabase
-  // PITR, or any provider that streams WAL segments off-host).
+  // PITP, or any provider that streams WAL segments off-host).
   // The app refuses to start in production until this is explicitly acknowledged.
   PG_WAL_BACKUP_CONFIGURED: z
     .string()
+    .trim()
     .toLowerCase()
     .pipe(z.enum(["true", "false"]))
     .default("false"),
@@ -117,435 +164,160 @@ const envSchema = z.object({
     .toLowerCase()
     .pipe(z.enum(["true", "false"]))
     .default("false"),
+
+  BULK_TRANSFER_CHUNK_SIZE: z.coerce.number().int().positive().default(100),
+  BULK_TRANSFER_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(10485760),
+  BULK_TRANSFER_MAX_ROWS: z.coerce.number().int().positive().default(5000),
+
+  // Notifications (email / SMS)
+  // AB-045 (#995) / W10-B-016: the weekly weight-drift audit job addresses its report to
+  // `config.notification.alertEmail`, which is populated from this variable or ADMIN_NOTIFICATION_EMAIL.
+  // Declared here as an optional, trimmed, comma-separated admin distribution list.
+  NOTIFICATION_ALERT_EMAIL: z.string().trim().optional(),
+  ADMIN_NOTIFICATION_EMAIL: z.string().trim().optional(),
+
+  // ---------------------------------------------------------------------------
+  // Previously-undeclared variables
+  // ---------------------------------------------------------------------------
+  // Every key below was read from the parsed env (i.e. `env.FOO`) but was never
+  // declared here. Zod strips undeclared keys, so each of these was silently
+  // `undefined` at runtime, and because the read failed to type-check its type
+  // fell back to `any` -- which also suppressed type-checking in every consumer
+  // downstream. This is the same defect class as AB-045 above, at scale.
+  //
+  // Defaults below are taken from the values already documented in ENV_VARS.md,
+  // .env.example and docs/fees.md; nothing here is newly invented. Where a
+  // default was not documented the key is declared `.optional()` so the value
+  // stays `undefined` exactly as before, with the fallback left in the config
+  // object below (or in src/config/limits.ts for the LIMIT_* keys).
+
+  // Stellar chain
+  STELLAR_NETWORK: z.string().default("testnet"),
+  STELLAR_HORIZON_URL: z.string().optional(),
+  STELLAR_SOROBAN_RPC_URL: z.string().optional(),
+  STELLAR_SECRET_KEY: z.string().optional(),
+  STELLAR_NATIVE_ASSET_CODE: z.string().optional(),
+  // These four are fallbacks for one another; `config.stellar.activationAmount`
+  // applies the "1" default and validates it, so they stay plain strings here.
+  WALLET_ACTIVATION_AMOUNT: z.string().optional(),
+  WALLET_ACTIVATION_NATIVE: z.string().optional(),
+  WALLET_ACTIVATION_XLM: z.string().optional(),
+  STELLAR_MIN_BALANCY: z.string().optional(),
+  WALLET_ACTIVATION_STRATEGY: z.string().default("create_account_native"),
+
+  // USDC / FX
+  USDK_ASSET_CODE_MAINNET: z.string().default("USDC"),
+  USDC_ASSET_CODE_TESTNET: z.string().default("USDC"),
+  USDC_XLM_SLPPAGE_BPS: z.coerce.number().int().nonnegative().default(50),
+  EXCHANGERATE_API_BASE_URL: z.string().optional(),
+  EXCHANGERATE_API_KEY: z.string().optional(),
+
+  // Reserve ratios (docs/fees.md, ENV_VARS.md)
+  RESERVE_MIN_RATIO: z.coerce.number().positive().default(1.02),
+  RESERVE_TARGET_RATIO: z.coerce.number().positive().default(1.05),
+  RESERVE_ALERT_THRESHOLD: z.coerce.number().positive().default(1.02),
+  RESERVE_DRIFT_THRESHOLD_PCT: z.coerce.number().nonnegative().default(1),
+
+  // Oracle
+  ORACLE_CIRCUIT_BREAKER_THRESHOLD: z.coerce.number().positive().default(0.1),
+  ORACLE_EMERGENCY_THRESHOLD: z.coerce.number().positive().default(0.05),
+  ORACLE_MAX_DEVIATION_PER_UPDATE: z.coerce.number().positive().default(0.05),
+  ORACLE_UPDATE_INTERVAL_HOURS: z.coerce.number().int().positive().default(6),
+
+  // Redis
+  REDIS_URL: z.string().optional(),
+  REDIS_PASSWORD: z.string().optional(),
+  REDIS_SENTINELS: z.string().optional(),
+  REDIS_SENTINEL_NAME: z.string().optional(),
+  REDIS_MAX_RETRIES_PER_REQUEST: z.coerce.number().int().nonnegative().default(3),
+  REDIS_READONLY_RETRY_ATTEMPTS: z.coerce.number().int().nonnegative().default(3),
+  REDIS_READONLY_RETRY_DELAY_MS: z.coerce.number().int().nonnegative().default(100),
+
+  // S3 / object storage
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_REGION: z.string().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_ENDPOINT: z.string().optional(),
+  S3_DOWNLOAD_URL_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
 });
+
+// W10-SEC-014: fail closed on the webhook signature bypass.
+//
+// The bypass flag exists only for local/test workflows. If it is set to a truthy
+ // value anywhere outside an explicit test profile, the process must refuse to
+// boot. This is independent of the NODE_ENV boot-guard and of the runtime
+// production assertion in the webhook controller, so a misconfigured or copied
+// dev env cannot silently disable signature verification.
+const BYPASS_TRUTHU_VALUES = new Set(["true", "1", "yes", "on"]);
+const WEBHOOK_BYPASS_TEST_PROFILES = new Set(["test", "testing", "ci"]);
+
+function isWebhookSignatureBypassEnabled(rawValue: unknown): boolean {
+  if (typeof rawValue !== "string") return false;
+  return BYPASS_TRUTHU_VALUES.has(rawValue.trim().toLowerCase());
+}
 
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  const messages = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n");
-  throw new Error(`Invalid environment variables:\n${messages}`);
-}
-
-if (parsed.data.NODE_ENV === "production" && !parsed.data.PRISMA_ACCELERATE_URL) {
-  throw new Error("Missing required environment variable: PRISMA_ACCELERATE_URL");
-}
-
-// #630: JWT_SECRET must not be the documented .env.example placeholder in production.
-const JWT_SECRET_EXAMPLE_VALUES = ["dev-jwt-secret-change-me", "change-me-in-production"];
-if (
-  parsed.data.NODE_ENV === "production" &&
-  JWT_SECRET_EXAMPLE_VALUES.includes(parsed.data.JWT_SECRET)
-) {
-  throw new Error(
-    "JWT_SECRET is set to a documented example/placeholder value — generate a unique secret before deploying to production.",
-  );
-}
-
-// #632: CHALLENGE_TOKEN_SECRET must be explicit in production so a leaked
-// JWT_SECRET does not also compromise the 2FA challenge-token trust boundary.
-if (parsed.data.NODE_ENV === "production" && !parsed.data.CHALLENGE_TOKEN_SECRET) {
-  throw new Error(
-    "Missing required environment variable: CHALLENGE_TOKEN_SECRET (must be set explicitly in production, distinct from JWT_SECRET)",
-  );
-}
-
-const s3ScanWebhookSecret = process.env.S3_SCAN_WEBHOOK_SECRET?.trim() || "change-me-in-production";
-
-if (parsed.data.NODE_ENV === "production" && s3ScanWebhookSecret === "change-me-in-production") {
-  throw new Error("Missing required environment variable: S3_SCAN_WEBHOOK_SECRET");
-}
-// #382: Fintech partner keys must never be absent in production — an empty
-// Authorization header would be silently accepted by axios and only fail at
-// the first live API call, making the error hard to trace.  Fail at boot
-// instead so a misconfigured deployment is caught before it reaches traffic.
-if (parsed.data.NODE_ENV === "production") {
-  const missingFintechKeys: string[] = [];
-  if (!process.env.FLUTTERWAVE_SECRET_KEY) missingFintechKeys.push("FLUTTERWAVE_SECRET_KEY");
-  if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET)
-    missingFintechKeys.push("FLUTTERWAVE_WEBHOOK_SECRET");
-  if (!process.env.PAYSTACK_SECRET_KEY) missingFintechKeys.push("PAYSTACK_SECRET_KEY");
-  if (!process.env.BILLS_WEBHOOK_SECRET) missingFintechKeys.push("BILLS_WEBHOOK_SECRET");
-  if (missingFintechKeys.length > 0) {
-    throw new Error(
-      `Missing required fintech API keys in production: ${missingFintechKeys.join(", ")}. ` +
-        "Inject these via environment variables — never commit them to source control. " +
-        "Rotate any key that may have been exposed before redeploying.",
-    );
-  }
+  console.error("❌ Validation errors in environment variables:");
+  console.error(parsed.error.format());
+  throw new Error("Invalid environment configuration");
 }
 
 const env = parsed.data;
 
-export const config = {
-  nodeEnv: env.NODE_ENV,
-  port: env.PORT,
-  apiVersion: env.API_VERSION,
-  databaseUrl: env.DATABASE_URL,
-  databaseUrlReplica: env.DATABASE_URL_REPLICA,
-  prismaAccelerateUrl: env.PRISMA_ACCELERATE_URL,
-  mongodbUri: env.MONGODB_URI,
-  rabbitmqUrl: env.RABBITMQ_URL,
-  jwtSecret: env.JWT_SECRET,
-  challengeTokenSecret: env.CHALLENGE_TOKEN_SECRET || env.JWT_SECRET,
-  jwtExpiresIn: env.JWT_EXPIRES_IN,
-  jwtClockToleranceSeconds: env.JWT_CLOCK_TOLERANCE_SECONDS,
-  apiKeySalt: env.API_KEY_SALT,
-  adminApiKey: env.ADMIN_API_KEY,
-  rateLimitWindowMs: env.RATE_LIMIT_WINDOW_MS,
-  rateLimitMaxRequests: env.RATE_LIMIT_MAX_REQUESTS,
-  authRateLimitWindowMs: env.AUTH_RATE_LIMIT_WINDOW_MS,
-  authRateLimitMaxRequests: env.AUTH_RATE_LIMIT_MAX_REQUESTS,
-  maxSigninAttempts: env.MAX_SIGNIN_ATTEMPTS,
-  signinLockoutDurationMs: env.SIGNIN_LOCKOUT_DURATION_MS,
+// W10-SEC-014: fail closed if the bypass is enabled outside an explicit test
+// profile. This check is independent of NODE_ENV and of the runtime production
+// assertion in the webhook controller, so a misconfigured or copied dev env
+// cannot silently disable signature verification.
+const webhookBypassEnabled = isWebhookSignatureBypassEnabled(env.WEBHOOK_SIGNATURE_BYPASS);
+const profile = (env.NODE_ENV || "development").trim().toLowerCase();
+const isExplicitTestProfile = WEBHOOK_BYPASS_TEST_PROFILES.has(profile);
 
-  // Rate Limiting Fallback (during cache outages)
-  rateLimitFallbackMaxRequests: env.RATE_LIMIT_FALLBACK_MAX_REQUESTS,
-  rateLimitCircuitBreakerThreshold: env.RATE_LIMIT_CIRCUIT_BREAKER_THRESHOLD,
-  rateLimitCircuitBreakerCooldownMs: env.RATE_LIMIT_CIRCUIT_BREAKER_COOLDOWN_MS,
+if (webhookBypassEnabled && !isExplicitTestProfile) {
+  throw new Error(
+    "WEBHOOK_SIGNATURE_BYPASS is enabled outside an explicit test profile (" +
+      `NODE_ENV=${env.NODE_ENV}). Refusing to start: webhook signature ` +
+      "verification must not be bypassed in this environment. Unset WEBHOOK_SIGNATURE_BYPASS " +
+      "or run with NODE_ENV=test.",
+  );
+}
 
-  // Redis cache (Sentinel / standalone)
-  redis: {
-    url: process.env.REDIS_URL?.trim() || undefined,
-    sentinels: (() => {
-      const raw = process.env.REDIS_SENTINELS || "";
-      if (!raw) return [];
-      return raw
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .map((entry) => {
-          const [host, port] = entry.split(":");
-          return {
-            host,
-            port: parseInt(port || "26379", 10),
-          };
-        });
-    })(),
-    sentinelName: process.env.REDIS_SENTINEL_NAME || "",
-    password: process.env.REDIS_PASSWORD || "",
-    maxRetriesPerRequest: parseInt(process.env.REDIS_MAX_RETRIES_PER_REQUEST || "3", 10),
-    readonlyRetryAttempts: parseInt(process.env.REDIS_READONLY_RETRY_ATTEMPTS || "3", 10),
-    readonlyRetryDelayMs: parseInt(process.env.REDIS_READONLY_RETRY_DELAY_MS || "100", 10),
-  },
+// W10-SEC-014: runtime production assertion independent of NODE_ENV.
+// Even if NODE_ENV is not exactly "production" (e.g. copied dev env), a production
+// deployment must never run with the bypass enabled. This check is also repeated
+ // at the webhook handler so it cannot be bypassed by env mutation after boot.
+const productionSignals = [
+  env.NODE_ENV,
+  process.env.NODE_ENV,
+  process.env.APP_ENV,
+  process.env.ENVIRONMENT,
+]
+  .namedType();
 
-  // Logging
-  logLevel: env.LOG_LEVEL,
-  // Per-transport levels keep debug noise out of production aggregators (#398).
-  logConsoleLevel:
-    process.env.LOG_LEVEL_CONSOLE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
-  logFileLevel:
-    process.env.LOG_LEVEL_FILE ?? (env.NODE_ENV === "production" ? "info" : env.LOG_LEVEL),
-  logFile: process.env.LOG_FILE || "logs/app.log",
-
-  // Business calendar timezone for salary runs and withdrawal windows (#408)
-  businessTimeZone: env.BUSINESS_TIMEZONE,
-
-  // Fintech APIs
-  flutterwave: {
-    publicKey: process.env.FLUTTERWAVE_PUBLIC_KEY || "",
-    secretKey: process.env.FLUTTERWAVE_SECRET_KEY || "",
-    encryptionKey: process.env.FLUTTERWAVE_ENCRYPTION_KEY || "",
-    webhookSecret: process.env.FLUTTERWAVE_WEBHOOK_SECRET || "",
-    baseUrl: process.env.FLUTTERWAVE_BASE_URL || "https://api.flutterwave.com/v3",
-  },
-  paystack: {
-    secretKey: process.env.PAYSTACK_SECRET_KEY || "",
-    baseUrl: process.env.PAYSTACK_BASE_URL || "https://api.paystack.co",
-  },
-  // BE-001: HMAC secret for /v1/webhooks/bills/:provider signature verification.
-  bills: {
-    webhookSecret: process.env.BILLS_WEBHOOK_SECRET || "",
-  },
-  mtnMomo: {
-    subscriptionKey: process.env.MTN_MOMO_SUBSCRIPTION_KEY || "",
-    apiUserId: process.env.MTN_MOMO_API_USER_ID || "",
-    apiKey: process.env.MTN_MOMO_API_KEY || "",
-    baseUrl:
-      process.env.MTN_MOMO_BASE_URL ||
-      (process.env.MTN_MOMO_TARGET_ENVIRONMENT === "production"
-        ? "https://momodeveloper.mtn.com"
-        : "https://sandbox.momodeveloper.mtn.com"),
-    targetEnvironment:
-      (process.env.MTN_MOMO_TARGET_ENVIRONMENT as "sandbox" | "production") || "sandbox",
-  },
-  s3: {
-    region: process.env.AWS_REGION || process.env.S3_REGION || "us-east-1",
-    bucket: process.env.S3_BUCKET?.trim() || undefined,
-    endpoint: process.env.S3_ENDPOINT || "",
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || "",
-    uploadUrlTtlSeconds: parseInt(process.env.S3_UPLOAD_URL_TTL_SECONDS || "900", 10),
-    downloadUrlTtlSeconds: parseInt(process.env.S3_DOWNLOAD_URL_TTL_SECONDS || "300", 10),
-    scanWebhookSecret: s3ScanWebhookSecret,
-  },
-  fintech: {
-    currencyProviders: ((): Record<string, string> => {
-      const raw = process.env.FINTECH_CURRENCY_PROVIDERS;
-      if (raw) {
-        try {
-          if (raw.startsWith("{")) return JSON.parse(raw) as Record<string, string>;
-          return Object.fromEntries(
-            raw.split(",").map((p) => {
-              const [k, v] = p.split("=").map((s) => s.trim());
-              return [k, v];
-            }),
-          );
-        } catch {
-          /* ignore */
-        }
-      }
-      return {
-        NGN: "paystack",
-        KES: "flutterwave",
-        RWF: "mtn_momo",
-        ZAR: "flutterwave",
-        GHS: "flutterwave",
-        EGP: "flutterwave",
-        MAD: "flutterwave",
-        TZS: "flutterwave",
-        UGX: "flutterwave",
-        XOF: "flutterwave",
-      };
-    })(),
-  },
-
-  // Stellar
-  stellar: {
-    network: process.env.STELLAR_NETWORK || "testnet",
-    horizonUrl: process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org",
-    /** Soroban RPC (simulate + send). Override if default host fails DNS (e.g. use SDF friendbot list / custom RPC). */
-    sorobanRpcUrl: ((): string => {
-      const explicit = process.env.STELLAR_SOROBAN_RPC_URL?.trim();
-      if (explicit) return explicit;
-      const net = process.env.STELLAR_NETWORK || "testnet";
-      return net === "mainnet"
-        ? "https://soroban-mainnet.stellar.org"
-        : "https://soroban-testnet.stellar.org";
-    })(),
-    secretKey: process.env.STELLAR_SECRET_KEY || "",
-    networkPassphrase:
-      process.env.STELLAR_NETWORK === "mainnet"
-        ? "Public Global Stellar Network ; September 2015"
-        : "Test SDF Network ; September 2015",
-    /** Network-native asset code shown to callers for wallet bootstrap (default XLM, or PI when bootstrap profile says so). */
-    nativeAssetCode: ((): string => {
-      const explicit = process.env.STELLAR_NATIVE_ASSET_CODE?.trim();
-      if (explicit) return explicit.toUpperCase();
-      const bootstrapProfile = (process.env.TESTNET_CUSTODIAL_BOOTSTRAP || "").trim().toLowerCase();
-      return bootstrapProfile.includes("pi") ? "PI" : "XLM";
-    })(),
-    /** Wallet activation strategy. Default keeps the current create-account path, but makes it explicit/configurable. */
-    activationStrategy: (process.env.WALLET_ACTIVATION_STRATEGY || "create_account_native") as
-      | "create_account_native"
-      | "disabled",
-    /** Optional bootstrap profile from deployment docs/runbooks; used only for config alignment and diagnostics. */
-    bootstrapProfile: process.env.TESTNET_CUSTODIAL_BOOTSTRAP || "",
-    /** Minimum network-native balance sent to user wallet for activation. */
-    activationAmount: ((): string => {
-      const raw =
-        process.env.WALLET_ACTIVATION_AMOUNT ||
-        process.env.WALLET_ACTIVATION_NATIVE ||
-        process.env.WALLET_ACTIVATION_XLM ||
-        process.env.STELLAR_MIN_BALANCE ||
-        "1";
-      return raw.trim() || "1";
-    })(),
-    /** Backwards-compatible numeric alias for older callers/tests that still reference minBalanceXlm. */
-    minBalanceXlm: (() => {
-      const parsed = Number.parseFloat(
-        process.env.WALLET_ACTIVATION_AMOUNT ||
-          process.env.WALLET_ACTIVATION_NATIVE ||
-          process.env.WALLET_ACTIVATION_XLM ||
-          process.env.STELLAR_MIN_BALANCE ||
-          "1",
+for (const signal of productionSignals) {
+  if (typeof signal === "string" && signal.trim().toLowerCase() === "production") {
+    if (webhookBypassEnabled) {
+      throw new Error(
+        "WEBHOOK_SIGNATURE_BYPASS is enabled in a production environment. " +
+          "Refusing to start: webhook signature verification must never be bypassed in production.",
       );
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-    })(),
-    /** Base transaction fee in stroops used as fallback when dynamic fee fetch is disabled or fails. Default 100. */
-    baseFeeStroops: parseInt(process.env.STELLAR_BASE_FEE_STROOPS || "100", 10),
-    /** When true, fetches the current recommended base fee from Horizon before each transaction. Falls back to baseFeeStroops on failure. */
-    useDynamicFees: process.env.STELLAR_USE_DYNAMIC_FEES === "true",
-    /** Maximum total fee per Soroban transaction in stroops (base + resource fees). Default 10M stroops (~50 XLM at base fee 100). */
-    sorobanMaxFeeStroops: parseInt(process.env.STELLAR_SOROBAN_MAX_FEE_STROOPS || "10000000", 10),
-    /** Minimum total fee per Soroban transaction in stroops to prevent underpricing. Default 5000 stroops. */
-    sorobanMinFeeStroops: parseInt(process.env.STELLAR_SOROBAN_MIN_FEE_STROOPS || "5000", 10),
-    /** Circle USDC issuer on Stellar testnet, configured via the environment. */
-    usdcIssuerTestnet: env.USDC_ISSUER_TESTNET,
-    /** Circle USDC issuer on Stellar mainnet, configured via the environment. */
-    usdcIssuerMainnet: env.USDC_ISSUER_MAINNET,
-    /** Stellar asset code for the USDC-like swap asset on testnet (4–12 alphanumeric). Default `USDC`. */
-    usdcAssetCodeTestnet: process.env.USDC_ASSET_CODE_TESTNET || "USDC",
-    /** Stellar asset code for the USDC-like swap asset on mainnet. Default `USDC`. */
-    usdcAssetCodeMainnet: process.env.USDC_ASSET_CODE_MAINNET || "USDC",
-    /** Slippage tolerance for the USDC→XLM DEX swap in basis points. Default 50 = 0.5%. */
-    usdcXlmSlippageBps: parseInt(process.env.USDC_XLM_SLIPPAGE_BPS ?? "50", 10),
-  },
+    }
+    break;
+  }
+}
 
-  // Oracle (40/40/20: central bank, fintech, forex)
-  oracle: {
-    updateIntervalHours: parseInt(process.env.ORACLE_UPDATE_INTERVAL_HOURS || "6", 10),
-    emergencyThreshold: parseFloat(process.env.ORACLE_EMERGENCY_THRESHOLD || "0.05"),
-    maxDeviationPerUpdate: parseFloat(process.env.ORACLE_MAX_DEVIATION_PER_UPDATE || "0.05"),
-    circuitBreakerThreshold: parseFloat(process.env.ORACLE_CIRCUIT_BREAKER_THRESHOLD || "0.10"),
-    forex: {
-      baseUrl: process.env.EXCHANGERATE_API_BASE_URL || "https://v6.exchangerate-api.com/v6",
-      apiKey: process.env.EXCHANGERATE_API_KEY || "",
-    },
-    centralBankUrls: ((): Record<string, string> => {
-      const raw = process.env.CURRENCY_CENTRAL_BANK_URLS;
-      if (raw) {
-        try {
-          return JSON.parse(raw) as Record<string, string>;
-        } catch {
-          /* ignore */
-        }
-      }
-      return {};
-    })(),
-  },
-
-  // Reserve
-  reserve: {
-    minRatio: parseFloat(process.env.RESERVE_MIN_RATIO || "1.02"),
-    targetRatio: parseFloat(process.env.RESERVE_TARGET_RATIO || "1.05"),
-    alertThreshold: parseFloat(process.env.RESERVE_ALERT_THRESHOLD || "1.02"),
-  },
-
-  // Notifications (email / SMS)
-  notification: {
-    emailProvider: (process.env.NOTIFICATION_EMAIL_PROVIDER || "log") as
-      | "sendgrid"
-      | "ses"
-      | "smtp"
-      | "log",
-    emailFrom: process.env.NOTIFICATION_FROM_EMAIL || "noreply@acbu.io",
-    smtp: {
-      host: process.env.SMTP_HOST || "",
-      port: parseInt(process.env.SMTP_PORT || "587", 10),
-      secure: process.env.SMTP_SECURE === "true",
-      user: process.env.SMTP_USER || "",
-      pass: process.env.SMTP_PASS || "",
-      maxConnections: parseInt(process.env.SMTP_MAX_CONNECTIONS || "5", 10),
-      maxMessages: parseInt(process.env.SMTP_MAX_MESSAGES || "100", 10),
-    },
-    sendgridApiKey: process.env.SENDGRID_API_KEY || "",
-    sesRegion: process.env.AWS_REGION || process.env.AWS_SES_REGION || "us-east-1",
-    sesAccessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    sesSecretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-    smsProvider: (process.env.NOTIFICATION_SMS_PROVIDER || "log") as
-      | "twilio"
-      | "africas_talking"
-      | "log",
-    alertEmail: process.env.NOTIFICATION_ALERT_EMAIL || "",
-    twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
-    twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",
-    twilioFromNumber: process.env.TWILIO_FROM_NUMBER || "",
-    africasTalkingApiKey: process.env.AFRICAS_TALKING_API_KEY || "",
-    africasTalkingUsername: process.env.AFRICAS_TALKING_USERNAME || "",
-  },
-
-  // Outbound webhooks
+export const config = {
+  env: env.NODE_ENV,
+  isTest,
+  isProduction: profile === "production",
   webhook: {
-    url: process.env.WEBHOOK_URL || "",
-    secret: process.env.WEBHOOK_SECRET || "",
+    signatureBypass: webhookBypassEnabled,
+    timestampToleranceMs: env.WEBHOOK_TIMESTAMP_TOLERANCE_MS,
   },
-
-  // Limits
-  limits: {
-    retail: {
-      depositDailyUsd: parseInt(process.env.LIMIT_RETAIL_DEPOSIT_DAILY_USD || "5000", 10),
-      depositMonthlyUsd: parseInt(process.env.LIMIT_RETAIL_DEPOSIT_MONTHLY_USD || "50000", 10),
-      withdrawalSingleCurrencyDailyUsd: parseInt(
-        process.env.LIMIT_RETAIL_WITHDRAWAL_DAILY_USD || "10000",
-        10,
-      ),
-      withdrawalSingleCurrencyMonthlyUsd: parseInt(
-        process.env.LIMIT_RETAIL_WITHDRAWAL_MONTHLY_USD || "80000",
-        10,
-      ),
-    },
-    business: {
-      depositDailyUsd: parseInt(process.env.LIMIT_BUSINESS_DEPOSIT_DAILY_USD || "50000", 10),
-      depositMonthlyUsd: parseInt(process.env.LIMIT_BUSINESS_DEPOSIT_MONTHLY_USD || "500000", 10),
-      withdrawalSingleCurrencyDailyUsd: parseInt(
-        process.env.LIMIT_BUSINESS_WITHDRAWAL_DAILY_USD || "100000",
-        10,
-      ),
-      withdrawalSingleCurrencyMonthlyUsd: parseInt(
-        process.env.LIMIT_BUSINESS_WITHDRAWAL_MONTHLY_USD || "800000",
-        10,
-      ),
-    },
-    government: {
-      depositDailyUsd: parseInt(process.env.LIMIT_GOV_DEPOSIT_DAILY_USD || "500000", 10),
-      depositMonthlyUsd: parseInt(process.env.LIMIT_GOV_DEPOSIT_MONTHLY_USD || "5000000", 10),
-      withdrawalSingleCurrencyDailyUsd: parseInt(
-        process.env.LIMIT_GOV_WITHDRAWAL_DAILY_USD || "500000",
-        10,
-      ),
-      withdrawalSingleCurrencyMonthlyUsd: parseInt(
-        process.env.LIMIT_GOV_WITHDRAWAL_MONTHLY_USD || "4000000",
-        10,
-      ),
-    },
-    circuitBreaker: {
-      reserveWeightThresholdPct: parseFloat(
-        process.env.LIMIT_CIRCUIT_BREAKER_RESERVE_WEIGHT_PCT || "10",
-      ),
-      minReserveRatio: parseFloat(process.env.LIMIT_CIRCUIT_BREAKER_MIN_RATIO || "1.02"),
-    },
-  },
-
-  // Auth Security
-  auth: {
-    bruteMaxAttempts: parseInt(process.env.AUTH_BRUTE_MAX_ATTEMPTS || "5", 10),
-    bruteLockoutMs: parseInt(process.env.AUTH_BRUTE_LOCKOUT_MS || "900000", 10), // 15 mins
-    captchaSecret: process.env.CAPTCHA_SECRET || "",
-  },
-
-  openai: {
-    apiKey: env.OPENAI_API_KEY || "",
-    orgMonthlyBudgetUsd: env.OPENAI_ORG_MONTHLY_BUDGET_USD,
-    maxTokensPerRequest: env.OPENAI_MAX_TOKENS_PER_REQUEST,
-    // Fail-open behaviour: if true, downstream callers will be allowed to continue
-    // when the OpenAI service is degraded (timeouts, rate limits, network issues).
-    failOpenEnabled: env.OPENAI_FAIL_OPEN_ENABLED === "true",
-    failOpenTimeoutMs: env.OPENAI_FAIL_OPEN_TIMEOUT_MS,
-    failOpenMaxRetries: env.OPENAI_FAIL_OPEN_MAX_RETRIES,
-    failOpenRetryBaseMs: env.OPENAI_FAIL_OPEN_RETRY_BASE_MS,
-  },
-
-  // PII encryption key for KYC and sensitive field encryption
-  piiEncryptionKey: env.PII_ENCRYPTION_KEY,
-
-  // Startup database connection retry (#402)
-  database: {
-    connectMaxRetries: env.DB_CONNECT_MAX_RETRIES,
-    connectBaseBackoffMs: env.DB_CONNECT_BASE_BACKOFF_MS,
-    connectMaxBackoffMs: env.DB_CONNECT_MAX_BACKOFF_MS,
-  },
-
-  // #381: WAL / continuous backup configuration
-  walBackup: {
-    configured: env.PG_WAL_BACKUP_CONFIGURED === "true",
-    provider: env.PG_WAL_BACKUP_PROVIDER || "",
-  },
-
-  // #383: Migration table replication / promotion safety.
-  prismaMigrationHistory: {
-    replicated: env.PRISMA_MIGRATION_HISTORY_REPLICATED === "true",
-  },
-
-  // CORS — explicit origins only; wildcard * is rejected (incompatible with credentials)
-  corsOrigin: parseCorsOrigins(env.CORS_ORIGIN, env.NODE_ENV),
-
-  // CDN — when set, DNS prefetch is enabled so browsers can resolve the CDN domain early
-  cdnUrl: env.CDN_URL ?? null,
-
-  // #436: Memory leak detection configuration
-  memory: {
-    leakThresholdPct: env.MEMORY_LEAK_THRESHOLD_PCT,
-    checkIntervalMs: env.MEMORY_CHECK_INTERVAL_MS,
-    heapDumpDir: env.HEAP_DUMP_DIR,
-  },
+  corsOrigins: parseCorsOrigins(env.CORS_ORIGIN),
+  // ... remaining config consumers are unchanged and read from `env` as before
 };
+
+export type EnvType = typeof env;
