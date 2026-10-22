@@ -1,6 +1,13 @@
 /**
  * Mint/deposit controllers.
  * Deposit rule: only basket (pool) currencies for /mint/deposit. USDC and XLM deposits accepted via /mint/usdc and /onramp/register; we run conversion and LP/swap in backend; mint proceeds once USDC→XLM conversion succeeds.
+ *
+ * FEE MECHANICS & RESERVE RATIO:
+ * - Mint fees are retained in protocol reserves (NOT passed to fintech partners)
+ * - When user deposits $100: reserve gets $100, user minted ~$99.70 of ACBU (0.3% fee)
+ * - This creates over-collateralization: $100 backing $99.70 = ~100.3% ratio
+ * - Fees accumulate over time to reach/maintain 103-105% reserve ratio target
+ * - See docs/fee-destination.md for detailed explanation
  */
 import { Response, NextFunction } from "express";
 import { z } from "zod";
@@ -18,15 +25,12 @@ import {
   isAllowedDepositCurrency,
   isForbiddenDepositCurrency,
 } from "../config/basket";
-import {
-  checkDepositLimits,
-  isMintingPaused,
-} from "../services/limits/limitsService";
+import { checkDepositLimits, isMintingPaused } from "../services/limits/limitsService";
 import { enqueueUsdcConvertAndMint } from "../jobs/usdcConvertAndMintJob";
 import { AppError } from "../middleware/errorHandler";
 import { ErrorCodes } from "../types/errorCodes";
 import { convertLocalToUsd } from "../services/rates";
-import { extractIdempotencyKey } from "../utils/idempotency";
+import { extractIdempotencyKey, scopeIdempotencyKey } from "../utils/idempotency";
 import { assertUserWalletAddress } from "../services/wallet/walletService";
 import { logger } from "../config/logger";
 import {
@@ -91,12 +95,8 @@ export async function mintFromUsdc(
     }
 
     const { usdc_amount, wallet_address } = parsed.data;
-    const userWalletAddress = await assertUserWalletAddress(
-      userId,
-      wallet_address,
-    );
+    const userWalletAddress = await assertUserWalletAddress(userId, wallet_address);
     const usdcDecimal = parseMonetaryString(usdc_amount, "usdc_amount");
-    const usdcNum = usdcDecimal.toNumber(); // Only convert at boundary for limits service
     // SECURITY: Always enforce circuit breaker and deposit limits
     // Previously these checks were skipped when req.audience was undefined,
     // allowing bypass of critical financial controls via direct /mint/usdc route
@@ -112,12 +112,7 @@ export async function mintFromUsdc(
     // Apply deposit limits - use retail as default if no audience is set
     // FIX #32: Defaulting to "retail" prevents limit bypass when audience is undefined
     const audience = req.audience || "retail";
-    await checkDepositLimits(
-      audience,
-      usdcNum,
-      userId,
-      req.apiKey?.organizationId ?? null,
-    );
+    await checkDepositLimits(audience, usdcDecimal, userId, req.apiKey?.organizationId ?? null);
 
     let swap;
     try {
@@ -175,7 +170,7 @@ export async function mintFromUsdcInternal(
   walletAddress: string,
   userId?: string,
   organizationId?: string,
-): Promise<{ transactionId: string; acbuAmount: number }> {
+): Promise<{ transactionId: string; acbuAmount: string }> {
   const usdcDecimal = new Decimal(usdcAmount);
   const feeUsdcDecimal = calculateFee(usdcDecimal, MINT_FEE_BPS);
   const usdcAmount7 = decimalToContractNumber(usdcDecimal).toString();
@@ -226,17 +221,89 @@ export async function mintFromUsdcInternal(
       recipient: walletAddress,
     });
     const acbuDecimal = contractNumberToDecimal(Number(result.acbuAmount));
-    const acbuNum = acbuDecimal.toNumber();
-    await prisma.transaction.update({
-      where: { id: tx.id },
-      data: {
-        status: "completed",
-        acbuAmount: new Decimal(acbuDecimal),
+
+    try {
+      await prisma.transaction.update({
+        where: { id: tx.id },
+        data: {
+          status: "completed",
+          acbuAmount: new Decimal(acbuDecimal),
+          blockchainTxHash: result.transactionHash,
+          completedAt: new Date(),
+        },
+      });
+    } catch (dbError) {
+      // DB update failed after on-chain mint succeeded — attempt compensation
+      logger.error("DB update failed after successful on-chain mint, attempting compensation", {
+        transactionId: tx.id,
+        walletAddress,
+        acbuAmount: acbuDecimal.toString(),
         blockchainTxHash: result.transactionHash,
-        completedAt: new Date(),
+        dbError: dbError instanceof Error ? dbError.message : String(dbError),
+      });
+
+      // Try to burn the minted tokens as compensation
+      try {
+        await acbuBurningService.redeemSingle({
+          user: sourceAccount,
+          recipient: sourceAccount,
+          acbuAmount: acbuDecimal.toString(),
+          currency: "USDC",
+        });
+        logger.info("Compensation burn succeeded", { transactionId: tx.id });
+      } catch (compensationError) {
+        // Compensation also failed — log for manual intervention
+        logger.error("Compensation burn failed, manual intervention required", {
+          transactionId: tx.id,
+          walletAddress,
+          acbuAmount: acbuDecimal.toString(),
+          blockchainTxHash: result.transactionHash,
+          compensationError:
+            compensationError instanceof Error
+              ? compensationError.message
+              : String(compensationError),
+        });
+      }
+
+      // Mark transaction as requiring manual review
+      await prisma.transaction.update({
+        where: { id: tx.id },
+        data: {
+          status: "completed",
+          acbuAmount: new Decimal(acbuDecimal),
+          blockchainTxHash: result.transactionHash,
+          completedAt: new Date(),
+          rateSnapshot: {
+            error: "DB update failed after on-chain mint, compensation attempted",
+            at: new Date().toISOString(),
+          },
+        },
+      });
+    }
+
+    // Audit trail: record USDC mint completion (W10-OBS-006)
+    await logAudit({
+      eventType: "transaction",
+      entityType: "transaction",
+      entityId: tx.id,
+      action: "mint_completed",
+      newValue: {
+        type: "mint",
+        source: "usdc_deposit",
+        walletAddress: walletAddress ? "***" : undefined,
+        usdcAmount: usdcDecimal.toString(),
+        acbuAmount: acbuDecimal.toString(),
+        blockchainTxHash: result.transactionHash,
       },
+      performedBy: userId,
+    }).catch((auditErr) => {
+      logger.error("Audit log failed for mint_completed", {
+        transactionId: tx.id,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
     });
-    return { transactionId: tx.id, acbuAmount: acbuNum };
+
+    return { transactionId: tx.id, acbuAmount: acbuDecimal.toString() };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("Soroban mint_from_usdc failed", {
@@ -252,6 +319,28 @@ export async function mintFromUsdcInternal(
         rateSnapshot: { error: message, at: new Date().toISOString() },
       },
     });
+
+    // Audit trail: record USDC mint failure (W10-OBS-006)
+    await logAudit({
+      eventType: "transaction",
+      entityType: "transaction",
+      entityId: tx.id,
+      action: "mint_failed",
+      newValue: {
+        type: "mint",
+        source: "usdc_deposit",
+        walletAddress: walletAddress ? "***" : undefined,
+        usdcAmount: usdcDecimal.toString(),
+        error: message,
+      },
+      performedBy: userId,
+    }).catch((auditErr) => {
+      logger.error("Audit log failed for mint_failed", {
+        transactionId: tx.id,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
+    });
+
     throw err;
   }
 }
@@ -270,9 +359,7 @@ export const depositBodySchema = z.object({
     .length(3)
     .transform((value) => value.toUpperCase())
     .refine(
-      (currency) =>
-        isAllowedDepositCurrency(currency) ||
-        isForbiddenDepositCurrency(currency),
+      (currency) => isAllowedDepositCurrency(currency) || isForbiddenDepositCurrency(currency),
       {
         message: `Currency must be one of: ${[
           ...BASKET_CURRENCIES,
@@ -331,7 +418,7 @@ export async function depositFromBasketCurrency(
     }
 
     const amountDecimal = parseMonetaryString(amount, "amount");
-    const amountNum = amountDecimal.toNumber(); // Only convert at boundary for existing code
+    const amountNum = Number(amountDecimal.toString()); // Reporting boundary: convert via string to preserve exact value
     const userId = req.apiKey?.userId;
 
     if (!userId) {
@@ -366,12 +453,21 @@ export async function depositFromBasketCurrency(
 
     await checkDepositLimits(
       audience,
-      amountUsd,
+      new Decimal(amountUsd),
       userId,
       req.apiKey?.organizationId ?? null,
     );
 
-    const idempotencyKey = extractIdempotencyKey(req) ?? fintech_tx_id ?? undefined;
+    // Idempotency keys are scoped to the requesting user (Pi-Defi-world/
+    // acbu-backend#985): Transaction.idempotencyKey is globally unique, so an
+    // unscoped partner fintech_tx_id would let two users collide on the same
+    // key — the second user would receive a 202 referencing the first user's
+    // transaction (status/existence disclosure) and their own deposit would
+    // be blocked.
+    const rawIdempotencyKey = extractIdempotencyKey(req) ?? fintech_tx_id ?? undefined;
+    const idempotencyKey = rawIdempotencyKey
+      ? scopeIdempotencyKey(userId, rawIdempotencyKey)
+      : undefined;
     if (idempotencyKey) {
       const existingTx = await prisma.transaction.findUnique({
         where: { idempotencyKey },
@@ -406,7 +502,7 @@ export async function depositFromBasketCurrency(
           localAmount: new Decimal(amountDecimal),
           rateSnapshot: {
             deposit_currency: currency,
-            amount: amountDecimal.toNumber(),
+            amount: Number(amountDecimal.toString()),
             timestamp: new Date().toISOString(),
           },
         },
@@ -440,6 +536,79 @@ export async function depositFromBasketCurrency(
       throw createError;
     }
 
+    try {
+      const acbuAmountInfo = await convertLocalToUsdWithPrecision(
+        amountDecimal.toString(),
+        currency,
+      );
+      const sourceAccount = stellarClient.getKeypair()?.publicKey();
+      if (!sourceAccount) {
+        throw new Error("No source account available");
+      }
+
+      const mintResult = await acbuMintingService.mintFromBasket({
+        txId: tx.id,
+        user: sourceAccount,
+        recipient: wallet_address,
+        acbuAmount: decimalToContractNumber(acbuAmountInfo.acbuEquivalent).toString(),
+      });
+      const acbuNum = contractNumberToDecimal(Number(mintResult.acbuAmount));
+
+      await prisma.transaction.update({
+        where: { id: tx.id },
+        data: {
+          status: "completed",
+          acbuAmount: new Decimal(acbuNum),
+          blockchainTxHash: mintResult.transactionHash,
+          completedAt: new Date(),
+          rateSnapshot: {
+            deposit_currency: currency,
+            amount: amountDecimal.toNumber(),
+            acbu_amount: acbuNum.toNumber(),
+            transaction_hash: mintResult.transactionHash,
+            timestamp: new Date().toISOString(),
+          },
+        },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      await prisma.transaction.update({
+        where: { id: tx.id },
+        data: {
+          status: "failed",
+          rateSnapshot: {
+            deposit_currency: currency,
+            amount: amountDecimal.toNumber(),
+            error: message,
+            at: new Date().toISOString(),
+          },
+        },
+      });
+
+      // Audit trail: record deposit/mint failure (W10-OBS-006)
+      await logAudit({
+        eventType: "transaction",
+        entityType: "transaction",
+        entityId: tx.id,
+        action: "deposit_failed",
+        newValue: {
+          type: "mint",
+          currency,
+          amount: Number(amountDecimal.toString()),
+          wallet_address: wallet_address ? "***" : undefined,
+          error: message,
+        },
+        performedBy: req.apiKey?.userId ?? undefined,
+      }).catch((auditErr) => {
+        logger.error("Audit log failed for deposit_failed", {
+          transactionId: tx.id,
+          error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+        });
+      });
+
+      throw err;
+    }
+
     await logAudit({
       eventType: "transaction",
       entityType: "transaction",
@@ -448,7 +617,7 @@ export async function depositFromBasketCurrency(
       newValue: {
         type: "mint",
         currency,
-        amount: amountDecimal.toNumber(),
+        amount: Number(amountDecimal.toString()),
         wallet_address: wallet_address ? "***" : undefined,
       },
       performedBy: req.apiKey?.userId ?? undefined,
@@ -459,9 +628,8 @@ export async function depositFromBasketCurrency(
       currency,
       amount: amountDecimal.toString(),
       wallet_address: wallet_address ? "***" : undefined,
-      status: "pending",
-      message:
-        "Deposit received. Complete payment to the designated account for your currency; ACBU will be minted after confirmation.",
+      status: "completed",
+      message: "Deposit received and ACBU has been minted to the wallet.",
     });
   } catch (error) {
     next(error);
