@@ -15,7 +15,8 @@ export interface AdminRequest extends Request {
  * If no admin keys are configured, the endpoint is blocked entirely.
  */
 export function requireAdminApiKey(req: Request, _res: Response, next: NextFunction): void {
-  const configuredKeys = (config as any).adminApiKeys as Array<{ id: string; key: string }> | undefined;
+  const configuredKeys = (config as any).adminApiKeys as
+    Array<{ id: string; key: string }> | undefined;
 
   const adminApiKeys =
     configuredKeys && configuredKeys.length > 0

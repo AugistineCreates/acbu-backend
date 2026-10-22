@@ -376,20 +376,6 @@ export class StellarClient {
   }
 
   /**
-   * Create a keypair from secret
-   */
-  static createKeypairFromSecret(secret: string): Keypair {
-    return Keypair.fromSecret(secret);
-  }
-
-  /**
-   * Generate a new random keypair
-   */
-  static generateKeypair(): Keypair {
-    return Keypair.random();
-  }
-
-  /**
    * Validate a Stellar address
    */
   static isValidAddress(address: string): boolean {
