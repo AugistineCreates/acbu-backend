@@ -304,6 +304,10 @@ export async function processBulkTransfer(
   }
 
   const failureReport = allResults.filter((result) => result.status === "failure");
+  // Persist every non-success outcome so a later job lookup can reconstruct
+  // skippedCount as well as the failure details. The public process response
+  // continues to expose failures only for backwards compatibility.
+  const persistedReport = allResults.filter((result) => result.status !== "success");
   await prisma.bulkTransferJob.update({
     where: { id: job.id },
     data: {
@@ -311,7 +315,7 @@ export async function processBulkTransfer(
       completedAt: new Date(),
       successCount,
       failureCount,
-      failureReport: failureReport as unknown as Prisma.InputJsonValue,
+      failureReport: persistedReport,
     },
   });
 
@@ -349,7 +353,11 @@ export async function getBulkTransferJob(jobId: string, organizationId: string) 
     totalRows: job.totalRows,
     successCount: job.successCount,
     failureCount: job.failureCount,
-    skippedCount: 0,
+    skippedCount: Array.isArray(job.failureReport)
+      ? (job.failureReport as BulkTransferRowResult[]).filter(
+          (result) => result.status === "skipped",
+        ).length
+      : 0,
     status: job.status as BulkTransferJobStatus,
     createdAt: job.createdAt.toISOString(),
     completedAt: job.completedAt?.toISOString(),

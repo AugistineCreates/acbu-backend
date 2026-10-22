@@ -46,7 +46,7 @@ export interface BulkTransferJobResult {
   createdAt: string;
   /** ISO timestamp of job completion, or null if still processing */
   completedAt?: string;
-  /** Detailed failure report: array of failed rows with error messages */
+  /** Detailed report of failed/skipped rows with error messages */
   failureReport: BulkTransferRowResult[];
 }
 

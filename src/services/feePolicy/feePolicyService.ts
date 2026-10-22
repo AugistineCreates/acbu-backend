@@ -27,6 +27,7 @@
  */
 import { config } from "../../config/env";
 import { reserveTracker, ReserveTracker } from "../reserve/ReserveTracker";
+import { Decimal } from "@prisma/client/runtime/library";
 
 /** Default spread in basis points (0.25% = 25 bps). */
 const DEFAULT_SPREAD_BPS = Number(process.env.SPREAD_BPS || "25");
@@ -120,18 +121,18 @@ export async function getBurnFeeBps(currency: string): Promise<number> {
   if (!curr) {
     throw new Error(`Currency ${currency} not found in reserve status. Cannot calculate burn fee.`);
   }
-
-  const targetWeight = curr.targetWeight;
-  const actualWeight = curr.actualWeight;
-
-  if (targetWeight <= 0) {
+  
+  const targetWeight = new Decimal(curr.targetWeight);
+  const actualWeight = new Decimal(curr.actualWeight);
+  
+  if (targetWeight.lte(0)) {
     throw new Error(
       `Invalid target weight for ${currency}: ${targetWeight}. Cannot calculate burn fee.`,
     );
   }
-
-  const pctOfTarget = (actualWeight / targetWeight) * 100;
-
+  
+  const pctOfTarget = actualWeight.div(targetWeight).mul(100).toNumber();
+  
   let feeBps: number;
   if (pctOfTarget < LOW_RESERVE_THRESHOLD_PCT - RESERVE_THRESHOLD_EPSILON) {
     // Low reserves: discourage burns with high fee

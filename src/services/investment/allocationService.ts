@@ -84,8 +84,10 @@ function parseFiniteAmountUsd(amountUsd: string, label: string): Decimal {
 /**
  * Get total reserve value for the investment_savings segment (from ReserveTracker).
  */
-export async function getInvestmentSavingsReserveValueUsd(): Promise<number> {
-  const status = await reserveTracker.getReserveStatus(ReserveTracker.SEGMENT_INVESTMENT_SAVINGS);
+export async function getInvestmentSavingsReserveValueUsd(): Promise<Decimal> {
+  const status = await reserveTracker.getReserveStatus(
+    ReserveTracker.SEGMENT_INVESTMENT_SAVINGS,
+  );
   return status.totalReserveValueUsd;
 }
 
