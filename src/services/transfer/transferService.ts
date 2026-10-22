@@ -16,6 +16,7 @@ import { reserveWalletVersion, fetchWalletBalance } from "../wallet/walletStateS
 import { config } from "../../config/env";
 
 import { logger, logFinancialEvent } from "../../config/logger";
+import { logAudit } from "../audit";
 import type { CreateTransferParams, CreateTransferOptions, CreateTransferResult } from "./types";
 
 /** Parse a non-negative amount string into 7-decimal smallest units to avoid float drift. */
@@ -531,6 +532,26 @@ export async function createTransfer(
     correlationId,
   });
 
+  // Audit trail: record that a transfer was initiated (W10-OBS-006)
+  await logAudit({
+    eventType: "transaction",
+    entityType: "transaction",
+    entityId: tx.id,
+    action: "transfer_initiated",
+    newValue: {
+      type: "transfer",
+      recipientAddress,
+      amount: amount,
+      currency: "ACBU",
+    },
+    performedBy: senderUserId,
+  }).catch((auditErr) => {
+    logger.error("Audit log failed for transfer_initiated", {
+      transactionId: tx.id,
+      error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+    });
+  });
+
   let status = "pending";
   let blockchainTxHash: string | null = null;
 
@@ -559,6 +580,29 @@ export async function createTransfer(
       correlationId,
       providerRef: blockchainTxHash,
     });
+
+    // Audit trail: record transfer completion (W10-OBS-006)
+    await logAudit({
+      eventType: "transaction",
+      entityType: "transaction",
+      entityId: tx.id,
+      action: "transfer_completed",
+      newValue: {
+        type: "transfer",
+        status: "completed",
+        recipientAddress,
+        amount: amount,
+        currency: "ACBU",
+        blockchainTxHash,
+      },
+      performedBy: senderUserId,
+    }).catch((auditErr) => {
+      logger.error("Audit log failed for transfer_completed", {
+        transactionId: tx.id,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
+    });
+
     return {
       transactionId: tx.id,
       status,
@@ -603,6 +647,28 @@ export async function createTransfer(
           correlationId,
           providerRef: blockchainTxHash,
         });
+
+        // Audit trail: record transfer completion (W10-OBS-006)
+        await logAudit({
+          eventType: "transaction",
+          entityType: "transaction",
+          entityId: tx.id,
+          action: "transfer_completed",
+          newValue: {
+            type: "transfer",
+            status: "completed",
+            recipientAddress,
+            amount: amount,
+            currency: "ACBU",
+            blockchainTxHash,
+          },
+          performedBy: senderUserId,
+        }).catch((auditErr) => {
+          logger.error("Audit log failed for transfer_completed", {
+            transactionId: tx.id,
+            error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+          });
+        });
       } catch (err) {
         // A fee surge is a distinct, retryable condition: the payment was never
         // accepted, so nothing moved. Record it with its own error code instead
@@ -641,6 +707,29 @@ export async function createTransfer(
           correlationId,
           errorCode: isFeeSurge ? err.code : undefined,
           errorMessage: err instanceof Error ? err.message : String(err),
+        });
+
+        // Audit trail: record transfer failure (W10-OBS-006)
+        await logAudit({
+          eventType: "transaction",
+          entityType: "transaction",
+          entityId: tx.id,
+          action: "transfer_failed",
+          newValue: {
+            type: "transfer",
+            status: "failed",
+            recipientAddress,
+            amount: amount,
+            currency: "ACBU",
+            errorCode: isFeeSurge ? err.code : undefined,
+            errorMessage: err instanceof Error ? err.message : String(err),
+          },
+          performedBy: senderUserId,
+        }).catch((auditErr) => {
+          logger.error("Audit log failed for transfer_failed", {
+            transactionId: tx.id,
+            error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+          });
         });
 
         // A fee surge is retryable and no funds moved, so the caller is told
