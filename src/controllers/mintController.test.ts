@@ -112,7 +112,9 @@ jest.mock("../services/limits/limitsService", () => ({
 jest.mock("../services/rates", () => {
   // Import Decimal lazily to avoid hoisting issues with jest.mock
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Decimal } = require("@prisma/client/runtime/library") as { Decimal: typeof import("@prisma/client/runtime/library").Decimal };
+  const { Decimal } = require("@prisma/client/runtime/library") as {
+    Decimal: typeof import("@prisma/client/runtime/library").Decimal;
+  };
   return {
     // Issue #787: convertLocalToUsd now returns Decimal, not number.
     // The controller calls .toNumber() at the boundary before checkDepositLimits.
@@ -148,7 +150,8 @@ const mockedTransactionCreate = prisma.transaction.create as jest.Mock;
 const mockedTransactionFindFirst = prisma.transaction.findFirst as jest.Mock;
 const mockedTransactionFindUnique = prisma.transaction.findUnique as jest.Mock;
 const mockedTransactionUpdate = prisma.transaction.update as jest.Mock;
-const mockedConvertLocalToUsdWithPrecision = jest.requireMock("../services/rates").convertLocalToUsdWithPrecision as jest.Mock;
+const mockedConvertLocalToUsdWithPrecision = jest.requireMock("../services/rates")
+  .convertLocalToUsdWithPrecision as jest.Mock;
 
 describe("mintController", () => {
   beforeEach(() => {
@@ -253,14 +256,21 @@ describe("mintController", () => {
   it("mints ACBU from the basket deposit and records the on-chain hash", async () => {
     mockedTransactionCreate.mockResolvedValue({ id: "tx-1" });
     mockedTransactionUpdate.mockResolvedValue({ id: "tx-1" });
-    const mintFromBasket = jest.requireMock("../services/contracts").acbuMintingService.mintFromBasket;
+    const mintFromBasket =
+      jest.requireMock("../services/contracts").acbuMintingService.mintFromBasket;
     mintFromBasket.mockResolvedValue({ transactionHash: "abc123", acbuAmount: "10" });
 
     const res = makeRes();
     const next = makeNext();
     await depositFromBasketCurrency(
       {
-        apiKey: { id: "key-1", userId: "user-1", organizationId: null, permissions: [], rateLimit: 100 },
+        apiKey: {
+          id: "key-1",
+          userId: "user-1",
+          organizationId: null,
+          permissions: [],
+          rateLimit: 100,
+        },
         body: {
           currency: "NGN",
           amount: "100",
