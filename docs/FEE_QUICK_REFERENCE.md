@@ -230,7 +230,7 @@ pnpm run test:coverage
 2. Calculate: `pctOfTarget = (actualWeight / targetWeight) × 100`
 3. If pctOfTarget < 85% → 200 BPS
 4. If pctOfTarget > 115% → 5 BPS
-5. Otherwise → 10 BPS
+5. Otherwise → 30 BPS
 
 ---
 

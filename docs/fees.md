@@ -138,9 +138,9 @@ This protects the system from becoming under-collateralized.
 
 The burn fee structure creates currency-specific rebalancing incentives:
 
-1. **Low Reserves (<85% of target)**: High fee (200 BPS) strongly discourages withdrawals of scarce currencies
-2. **Normal Reserves (85-115%)**: Standard fee (30 BPS) allows normal operations
-3. **High Reserves (>115%)**: Low fee (5 BPS) encourages withdrawals to rebalance the basket
+1. **Low Reserves (<85% of target)**: High fee (200 BPS / 2.00%) strongly discourages withdrawals of scarce currencies
+2. **Normal Reserves (85-115%)**: Standard base fee (30 BPS / 0.30%) applies for normal operations
+3. **High Reserves (>115%)**: Discounted low fee (5 BPS / 0.05%) encourages withdrawals to rebalance the basket
 
 This automatically incentivizes users to help maintain the target basket composition.
 
