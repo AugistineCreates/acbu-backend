@@ -2,6 +2,7 @@
  * MTN Mobile Money API client (RWF, UGX, etc.). Implements FintechProvider for balance and disbursement.
  * FX (convertCurrency) does not have a generic API; use getProviderById('flutterwave') for rate fallback.
  */
+import crypto from "crypto";
 import { AxiosInstance } from "axios";
 import { config } from "../../config/env";
 import { logger } from "../../config/logger";
@@ -38,7 +39,7 @@ export class MTNMoMoClient implements FintechProvider {
       (conf.targetEnvironment === "production"
         ? "https://momodeveloper.mtn.com"
         : "https://sandbox.momodeveloper.mtn.com");
-    
+
     this.client = createHttpClient({
       baseURL: baseUrl,
       headers: {
@@ -76,8 +77,7 @@ export class MTNMoMoClient implements FintechProvider {
   private async ensureToken(): Promise<string> {
     const now = Date.now();
     if (this.token && this.tokenExpiry > now + 60_000) return this.token;
-    const conf =
-      (config as { mtnMomo?: MTNMoMoConfig }).mtnMomo ?? ({} as MTNMoMoConfig);
+    const conf = (config as { mtnMomo?: MTNMoMoConfig }).mtnMomo ?? ({} as MTNMoMoConfig);
     const apiUserId = conf.apiUserId ?? "";
     const apiKey = conf.apiKey ?? "";
     if (!apiUserId || !apiKey) {
@@ -96,7 +96,7 @@ export class MTNMoMoClient implements FintechProvider {
             "Ocp-Apim-Subscription-Key": this.subscriptionKey,
           },
         },
-      )
+      ),
     );
 
     const accessToken = response.data?.access_token ?? "";
@@ -108,18 +108,15 @@ export class MTNMoMoClient implements FintechProvider {
   async getBalance(currency: string): Promise<number> {
     try {
       const token = await this.ensureToken();
-      
+
       // Wrap balance request in circuit breaker
       const response = await this.requestWrapper(() =>
-        this.client.get(
-          "/disbursement/v1_0/account/balance",
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Ocp-Apim-Subscription-Key": this.subscriptionKey,
-            },
+        this.client.get("/disbursement/v1_0/account/balance", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Ocp-Apim-Subscription-Key": this.subscriptionKey,
           },
-        )
+        }),
       );
 
       const data = response.data;
@@ -148,7 +145,7 @@ export class MTNMoMoClient implements FintechProvider {
   ): Promise<DisburseResult> {
     try {
       const token = await this.ensureToken();
-      const referenceId = `acbu-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const referenceId = `acbu-${crypto.randomUUID()}`;
       const body = {
         amount: String(amount),
         currency,
@@ -165,26 +162,20 @@ export class MTNMoMoClient implements FintechProvider {
 
       // Wrap disbursements request in circuit breaker
       const response = await this.requestWrapper(() =>
-        this.client.post(
-          "/disbursement/v1_0/transfer",
-          body,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Ocp-Apim-Subscription-Key": this.subscriptionKey,
-              "X-Reference-Id": referenceId,
-              "X-Target-Environment":
-                ((config as { mtnMomo?: MTNMoMoConfig }).mtnMomo
-                  ?.targetEnvironment as string) ?? "sandbox",
-            },
+        this.client.post("/disbursement/v1_0/transfer", body, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Ocp-Apim-Subscription-Key": this.subscriptionKey,
+            "X-Reference-Id": referenceId,
+            "X-Target-Environment":
+              ((config as { mtnMomo?: MTNMoMoConfig }).mtnMomo?.targetEnvironment as string) ??
+              "sandbox",
           },
-        )
+        }),
       );
 
       const status =
-        response.status === 202
-          ? "pending"
-          : String(response.data?.status ?? "pending");
+        response.status === 202 ? "pending" : String(response.data?.status ?? "pending");
       return {
         transactionId: referenceId,
         status,

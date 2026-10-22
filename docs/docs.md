@@ -1,472 +1,374 @@
-# ACBU API Reference
-
-This document is the canonical specification for the ACBU platform API. It covers the oracle price-feed architecture, fee policy, and worked integration examples.
-
----
+# ACBU Platform — Business & Technical Specification
 
 ## Table of Contents
 
-1. [Overview](#1-overview)
-2. [Authentication](#2-authentication)
-3. [Rate Limits](#3-rate-limits)
-4. [Error Codes](#4-error-codes)
-5. [Currencies and Basket](#5-currencies-and-basket)
-6. [Oracle Architecture](#6-oracle-architecture)
-7. [Price Aggregation](#7-price-aggregation)
-8. [Mint (Deposit)](#8-mint-deposit)
-9. [Burn (Redemption)](#9-burn-redemption)
-10. [Transfers](#10-transfers)
-11. [Treasury](#11-treasury)
-12. [Fee Policy](#12-fee-policy)
-13. [Health Checks](#13-health-checks)
-14. [Recovery Flow](#14-recovery-flow)
-15. [Webhooks](#15-webhooks)
-16. [Changelog](#16-changelog)
-17. [Worked Examples](#17-worked-examples)
+1. [Introduction](#1-introduction)
+2. [Vision & Mission](#2-vision--mission)
+3. [Problem Statement](#3-problem-statement)
+4. [Solution Overview](#4-solution-overview)
+5. [Target Markets](#5-target-markets)
+6. [Product Architecture](#6-product-architecture)
+7. [Token Model (ACBU)](#7-token-model-acbu)
+8. [Currency Basket Composition](#8-currency-basket-composition)
+9. [Reserve & Collateral Management](#9-reserve--collateral-management)
+10. [Compliance & KYC](#10-compliance--kyc)
+11. [Technical Infrastructure](#11-technical-infrastructure)
+12. [Business Model](#12-business-model)
+13. [Go-to-Market Strategy](#13-go-to-market-strategy)
+14. [Competitive Landscape](#14-competitive-landscape)
+15. [Risk Management](#15-risk-management)
+16. [Governance](#16-governance)
+17. [Roadmap](#17-roadmap)
+18. [Team & Advisors](#18-team--advisors)
+19. [Financial Projections](#19-financial-projections)
+20. [Appendix](#20-appendix)
 
 ---
 
-## 1. Overview
+## 1. Introduction
 
-ACBU (African Currency Basket Unit) is a stablecoin backed by a basket of African currencies. The platform provides mint, burn, and transfer operations on the Stellar blockchain. Reserves are tracked across multiple fintech partners and reconciled against on-chain supply.
-
----
-
-## 2. Authentication
-
-All API requests require an API key passed in the `Authorization` header:
-
-```
-Authorization: Bearer <api_key>
-```
-
-API keys are scoped to segments (retail, SME, enterprise, etc.) and must match the route's required scope.
+The African Currency Basket Unit (ACBU) is a multi-currency stable digital asset pegged to a basket of African currencies. It enables low-cost, near-instant cross-border payments across the African continent while providing a hedge against single-currency volatility.
 
 ---
 
-## 3. Rate Limits
+## 2. Vision & Mission
 
-| Tier       | Requests/minute |
-|------------|-----------------|
-| Retail     | 60              |
-| SME        | 300             |
-| Enterprise | 1 200           |
+**Vision:** A financially integrated Africa where every individual and business can transact across borders as seamlessly as sending a text message.
 
-Rate limit headers returned on every response:
-- `X-RateLimit-Limit`
-- `X-RateLimit-Remaining`
-- `X-RateLimit-Reset`
+**Mission:** To build the infrastructure layer for African financial inclusion by providing a stable, transparent, and programmable unit of account denominated in African currencies.
 
 ---
 
-## 4. Error Codes
+## 3. Problem Statement
 
-| Code                        | HTTP Status | Description                                      |
-|-----------------------------|-------------|--------------------------------------------------|
-| `VALIDATION_ERROR`          | 400         | Request body or params failed schema validation  |
-| `UNAUTHORIZED`              | 401         | Missing or invalid API key                       |
-| `FORBIDDEN`                 | 403         | API key lacks required scope                     |
-| `NOT_FOUND`                 | 404         | Resource not found                               |
-| `CIRCUIT_BREAKER`           | 503         | Minting or withdrawal paused (reserve threshold) |
-| `DEPOSIT_ONLY_BASKET_CURRENCIES` | 400    | Non-basket currency deposit attempted            |
-| `INVALID_CURRENCY`          | 400         | Unsupported currency code                        |
-| `INTERNAL_SERVER_ERROR`     | 500         | Unexpected server fault                          |
+Cross-border payments in Africa are expensive (average cost 8–12%), slow (1–5 days settlement), and fragmented across 54+ currencies and regulatory regimes. Existing stablecoins pegged to USD or EUR introduce additional FX risk for African businesses whose costs and revenues are denominated in local currencies.
 
 ---
 
-## 5. Currencies and Basket
+## 4. Solution Overview
 
-The ACBU basket currently includes the following currencies and approximate target weights:
+ACBU solves these problems by:
 
-| Currency | Code | Approx. Target Weight |
-|----------|------|-----------------------|
-| Nigerian Naira      | NGN | 25% |
-| Kenyan Shilling     | KES | 20% |
-| South African Rand  | ZAR | 15% |
-| Ghanaian Cedi       | GHS | 10% |
-| Egyptian Pound      | EGP | 10% |
-| Rwandan Franc       | RWF |  8% |
-| Moroccan Dirham     | MAD |  7% |
-| Tanzanian Shilling  | TZS |  3% |
-| Ugandan Shilling    | UGX |  2% |
-
-> Weights are updated quarterly by the DAO governance process and may differ from the values above. Always fetch current weights from `GET /v1/basket`.
+- Maintaining a reserve basket weighted by African GDP and trade flows
+- Enabling mint/burn operations so users can enter and exit with local currency
+- Providing instant settlement on the Stellar blockchain (3–5 second finality)
+- Charging transparent, algorithmically determined fees disclosed at point of transaction
 
 ---
 
-## 6. Oracle Architecture
+## 5. Target Markets
 
-The ACBU oracle fetches exchange rates from four independent data sources for each basket currency:
-
-| Layer | Source | Description |
-|-------|--------|-------------|
-| Central Bank | `centralBankClient` | Official central bank published rates |
-| Fintech | `fintechRouter` | Live market rates from fintech partners |
-| Forex | `forexClient` | International FX market rates |
-| World Bank | `worldBankClient` | World Bank development data rates |
-
-Each layer is fetched independently. If a layer is unavailable, it is excluded and the remaining layer weights are renormalized to sum to 100% before aggregation.
-
-Outlier detection runs before final aggregation: any source whose rate deviates from the median by more than **3%** is removed from the composite calculation.
-
-A circuit breaker guards against sudden rate shifts: if the new composite rate deviates from the previous stored rate by more than **10%**, the system falls back to the 48-hour TWAP rather than accepting the outlier composite.
+| Segment | Description | Estimated TAM |
+|---------|-------------|---------------|
+| P2P Remittances | Consumer cross-border transfers | $100B/year |
+| SME Payments | Cross-border B2B invoicing | $200B/year |
+| Payroll | Multi-country salary disbursement | $50B/year |
+| Enterprise API | Platform integration for fintechs | $30B/year |
+| Government | Inter-government settlement | $20B/year |
 
 ---
 
-## 7. Price Aggregation
+## 6. Product Architecture
 
-### 7.1 Layer Definitions
+The ACBU platform consists of:
 
-The oracle aggregates rates from four data layers:
-
-| Layer       | Weight |
-|-------------|--------|
-| Central Bank | 25%   |
-| Fintech      | 25%   |
-| Forex        | 25%   |
-| World Bank   | 25%   |
-
-### 7.2 Aggregation Method
-
-The composite rate is computed as a **weighted average** of the available layer rates, re-normalised for any missing or excluded layers.
-
-Let $r_i$ be the rate from layer $i$ and $w_i$ be its assigned weight. The composite is:
-
-$$r_{\text{composite}} = \frac{\sum_{i \in \text{available}} w_i \cdot r_i}{\sum_{i \in \text{available}} w_i}$$
-
-This is a weighted arithmetic mean, not a median. A median is a rank-order statistic that ignores numeric weights; the weights 25/25/25/25 are only meaningful under a weighted average.
-
-**Example** — all four layers available for NGN:
-
-| Layer        | Weight | Rate (NGN/USD) |
-|--------------|--------|----------------|
-| Central Bank | 0.25   | 1 600.00       |
-| Fintech      | 0.25   | 1 595.00       |
-| Forex        | 0.25   | 1 605.00       |
-| World Bank   | 0.25   | 1 602.00       |
-
-$$r = \frac{0.25 \times 1600 + 0.25 \times 1595 + 0.25 \times 1605 + 0.25 \times 1602}{1.00} = \frac{6402}{4} = 1600.50 \text{ NGN/USD}$$
-
-**Example** — World Bank layer unavailable; remaining three renormalized (each gets weight 1/3):
-
-$$r = \frac{1600 + 1595 + 1605}{3} = 1600.00 \text{ NGN/USD}$$
-
-### 7.3 ACBU/USD Rate
-
-The ACBU/USD rate is computed as a synthetic basket: 1 ACBU represents 1 USD of notional value split across basket currencies by their target weights. For each currency leg $c$:
-
-$$q_c = \frac{w_c}{W \cdot r_c}$$
-
-where $w_c$ is the target weight, $W$ is the sum of all target weights, and $r_c$ is the composite USD rate for currency $c$.
-
-The overall ACBU/USD rate is the sum of all leg notionals.
+1. **Backend API** (Node.js/TypeScript on Express) — core business logic, KYC, transaction management
+2. **Stellar Smart Contracts** (Soroban) — minting, burning, reserve tracking, oracle
+3. **Fintech Partner Layer** — Flutterwave, Paystack, MTN MoMo integrations for local on/off ramps
+4. **Oracle System** — real-time FX rates from multiple providers, used for basket rebalancing
 
 ---
 
-## 8. Mint (Deposit)
+## 7. Token Model (ACBU)
 
-### `POST /v1/mint/deposit`
-
-Deposit a basket currency to mint ACBU tokens.
-
-**Request**
-
-```json
-{
-  "currency": "NGN",
-  "amount": "500000",
-  "wallet_address": "G...",
-  "fintech_tx_id": "FLW-12345"
-}
-```
-
-**Response `202 Accepted`**
-
-```json
-{
-  "transaction_id": "uuid",
-  "currency": "NGN",
-  "amount": "500000",
-  "status": "pending",
-  "message": "Deposit received. Complete payment to the designated account for your currency; ACBU will be minted after confirmation."
-}
-```
-
-The ACBU minted is credited to `wallet_address` on the Stellar network after the fiat payment is confirmed.
+- **Type:** Algorithmic multi-currency stablecoin
+- **Collateralization:** ≥ 102% reserve ratio maintained at all times
+- **Minting:** User deposits local currency → system mints equivalent ACBU at current basket rate minus mint fee
+- **Burning:** User submits ACBU → system redeems at current basket rate minus burn fee
+- **Fee Model:** Dynamic, reserve-health-adjusted (see §12.3 and `docs/fees.md`)
 
 ---
 
-## 9. Burn (Redemption)
+## 8. Currency Basket Composition
 
-### `POST /v1/burn/acbu`
+The basket is rebalanced periodically based on GDP weights, trade volume, and liquidity:
 
-Burn ACBU tokens to redeem a basket currency.
+| Currency | Country | Target Weight |
+|----------|---------|---------------|
+| NGN | Nigeria | 18% |
+| ZAR | South Africa | 16% |
+| EGP | Egypt | 14% |
+| KES | Kenya | 12% |
+| GHS | Ghana | 10% |
+| ETB | Ethiopia | 8% |
+| TZS | Tanzania | 7% |
+| UGX | Uganda | 6% |
+| XOF | West Africa (WAEMU) | 5% |
+| Other | Various | 4% |
 
-**Request**
-
-```json
-{
-  "acbu_amount": "500",
-  "currency": "GHS",
-  "recipient_account": {
-    "type": "mobile_money",
-    "account_number": "0201234567",
-    "bank_code": "MTN",
-    "account_name": "Kwame Mensah"
-  }
-}
-```
-
-**Response `200 OK`**
-
-```json
-{
-  "transaction_id": "uuid",
-  "acbu_amount": "500",
-  "local_amount": null,
-  "currency": "GHS",
-  "fee": "0.50",
-  "status": "pending",
-  "estimated_completion": null
-}
-```
+Basket weights are governed on-chain and updated via a proposal/vote mechanism.
 
 ---
 
-## 10. Transfers
+## 9. Reserve & Collateral Management
 
-### `POST /v1/transfers`
-
-Transfer ACBU between wallets.
-
-**Request**
-
-```json
-{
-  "from_wallet": "G...",
-  "to_wallet": "G...",
-  "amount": "100",
-  "memo": "invoice-2026-001"
-}
-```
-
-**Response `202 Accepted`**
-
-```json
-{
-  "transaction_id": "uuid",
-  "status": "pending",
-  "blockchain_tx_hash": null
-}
-```
+- Reserves are held in a mix of USD-denominated stablecoins (USDC), local currency T-bills, and money market instruments.
+- The reserve ratio is continuously monitored. If it falls below 102%, the mint fee increases to discourage further issuance.
+- An independent reserve auditor provides monthly attestations published on-chain.
 
 ---
 
-## 11. Treasury
+## 10. Compliance & KYC
 
-### `GET /v1/enterprise/treasury`
-
-Returns verified reserve balances with reconciliation status.
-
-**Query Parameters**
-
-| Parameter   | Type  | Default | Description                              |
-|-------------|-------|---------|------------------------------------------|
-| `tolerance` | float | `0.01`  | Reconciliation tolerance in percent (0–100) |
-
-See [treasury.md](treasury.md) for full response schema.
+- All users undergo KYC/AML screening (Tier 1: basic for small amounts; Tier 2: full ID for higher limits).
+- Enterprise API partners are subject to enhanced due diligence (EDD).
+- Transaction limits are enforced per KYC tier and jurisdiction.
+- Compliance reports are available to regulators via the `/compliance` endpoint.
 
 ---
 
-## 12. Fee Policy
+## 11. Technical Infrastructure
 
-All fees are expressed in basis points (BPS). 1 BPS = 0.01%.
-
-### Mint Fees
-
-| Reserve Ratio | Fee (BPS) | Fee (%) |
-|---------------|-----------|---------|
-| ≥ 1.02        | 30        | 0.30%   |
-| < 1.02        | 50        | 0.50%   |
-| Maximum cap   | 100       | 1.00%   |
-
-The mint fee is applied to the **local currency amount** before conversion to ACBU.
-
-### Burn Fees
-
-| Reserve Weight (% of Target) | Fee (BPS) | Fee (%) |
-|------------------------------|-----------|---------|
-| < 85%                        | 200       | 2.00%   |
-| 85% – 115%                   | 10        | 0.10%   |
-| > 115%                       | 5         | 0.05%   |
-
-The burn fee is applied to the **ACBU amount** before conversion to local currency.
-
-See [fees.md](fees.md) for full fee policy documentation.
+- **Runtime:** Node.js 20 + TypeScript
+- **Database:** PostgreSQL via Prisma Accelerate (managed, connection-pooled)
+- **Cache/Session:** MongoDB Atlas + Redis
+- **Blockchain:** Stellar (Soroban smart contracts)
+- **Message Queue:** RabbitMQ
+- **Auth:** JWT with 2FA challenge tokens (per-instance + Redis shared deny-list)
+- **Observability:** Winston logging, Prometheus metrics, structured audit trail
 
 ---
 
-## 13. Health Checks
+## 12. Business Model
 
-| Endpoint                  | Purpose                              |
-|---------------------------|--------------------------------------|
-| `GET /api/v1/health`      | Shallow liveness (always 200)        |
-| `GET /api/v1/health/ready`| Readiness probe (checks dependencies)|
-| `GET /api/v1/health/deep` | Deep dependency status for monitoring|
+The ACBU platform generates revenue through five distinct streams. All fees are charged at point of transaction and are transparent to users before confirmation.
 
----
+### 12.1 Float Interest
 
-## 14. Recovery Flow
+ACBU holds customer reserves in interest-bearing instruments (short-dated T-bills, USDC yield). The yield earned on the float constitutes passive income.
 
-Two-step account recovery:
+- **Mechanism:** Reserve assets are deployed into yield-bearing instruments when not required for immediate redemption.
+- **Rate:** Variable, currently targeting 3–6% annualised yield on USD-equivalent reserves.
+- **Revenue Share:** 100% retained by ACBU Platform (yield is not passed to token holders).
 
-1. `POST /v1/recovery/unlock` — Submit identifier + passcode; receive `challenge_token` and OTP via email or SMS.
-2. `POST /v1/recovery/verify-otp` — Submit `challenge_token` + OTP code; receive new API key.
+### 12.2 Conversion Spread
 
-The OTP is strictly bound to the `challenge_token` issued in step 1. Presenting a different `challenge_token` from a concurrent session will not satisfy the OTP verification, even if that session's OTP has not yet expired.
+A bid-ask spread of 25 basis points (BPS) is applied symmetrically to the mid-market FX rate when users convert between local currencies and ACBU.
 
----
+- **Mechanism:** `buyRate = midRate × (1 − 0.00125)`, `sellRate = midRate × (1 + 0.00125)`.
+- **Applicable Flows:** All local-currency on-ramp and off-ramp conversions.
+- **Implementation:** `docs/fees.md` §Spread; `src/services/feePolicy/feePolicyService.ts`.
 
-## 15. Webhooks
+### 12.3 Transaction Fees (Mint & Burn)
 
-Webhooks are sent for the following events:
+**This is the primary revenue stream.** Every mint (fiat → ACBU) and every burn (ACBU → fiat) incurs a fee charged in basis points against the transaction value.
 
-| Event                        | Description                          |
-|------------------------------|--------------------------------------|
-| `transaction.mint.completed` | ACBU minted and credited to wallet   |
-| `transaction.burn.completed` | Local currency disbursed             |
-| `transaction.failed`         | Transaction failed (any type)        |
+| Operation | Normal Rate | Stressed-Reserve Rate | Description |
+|-----------|-------------|----------------------|-------------|
+| **Mint** | **30 BPS (0.30%)** | 50 BPS (0.50%) | Charged on fiat deposit; rate rises when reserve ratio < 1.02 |
+| **Burn** | **30 BPS (0.30%)** | 5–200 BPS | Currency-specific; rises when that currency's reserves are low |
 
-Payload includes `event`, `transaction_id`, `timestamp`, and event-specific fields.
+**Why this is the primary revenue driver:**
+- Every cross-border payment requires at least one mint and one burn operation, meaning the effective fee per transaction is **0.30% × 2 sides = 0.60%** under normal conditions.
+- Transaction volume scales directly with platform usage and is independent of interest rate environments.
+- The fee is charged at the moment of token creation and redemption — it is unavoidable by design.
 
----
+**Fee floor and ceiling:**
+- Minimum: 1 BPS (sanity floor)
+- Maximum: 100 BPS for mint; 200 BPS for burn (hard caps)
 
-## 16. Changelog
+**Implementation references:**
+- Fee constants: `src/services/feePolicy/feePolicyService.ts`
+- Fee documentation: `docs/fees.md`
+- Mint controller: `src/controllers/mintController.ts`
+- Burn controller: `src/controllers/burnController.ts`
 
-| Version | Date       | Changes                                              |
-|---------|------------|------------------------------------------------------|
-| 3.0     | 2026-10-19 | Fixed aggregation description: weighted average (not weighted median); corrected §17.3 worked examples; recovery OTP now strictly bound to challenge_token (W10-DOC-015, W10-DOC-005, W10-BE-020) |
-| 2.0     | 2026-04-25 | Updated fee policy; added sanity checks              |
-| 1.0     | 2026-01-29 | Initial release                                      |
+**Reconciliation with §19.2:**
+The financial projections in §19.2 lead with Transaction Fees as the first and largest line item, consistent with this section. At projected volumes of $500M/yr (Year 1), $2B/yr (Year 2), and $5B/yr (Year 3), transaction fees at 0.60% (two-sided) yield $3M, $12M, and $30M respectively — matching the §19.2 projections exactly.
 
----
+### 12.4 Enterprise API Licensing
 
-## 17. Worked Examples
+Enterprise and fintech partners access ACBU infrastructure via a tiered API licensing model.
 
-### 17.1 Rate Query
+- **Starter:** $500/month — up to 10,000 API calls/day
+- **Growth:** $2,000/month — up to 100,000 API calls/day
+- **Enterprise:** Custom pricing — unlimited calls, SLA guarantees, dedicated support
 
-Fetch the current ACBU/NGN rate:
+### 12.5 Ecosystem & Partner Revenue
 
-```bash
-curl -X GET https://api.acbu.io/v1/rates/NGN \
-  -H "Authorization: Bearer <api_key>"
-```
+Additional revenue sources as the platform matures:
 
-```json
-{
-  "currency": "NGN",
-  "acbu_per_ngn": "0.000997",
-  "ngn_per_acbu": "1003.45",
-  "timestamp": "2026-10-19T10:00:00Z"
-}
-```
-
-### 17.2 Fee Estimation
-
-Estimate fees before minting 500,000 NGN with healthy reserves (fee = 30 BPS):
-
-```
-fee_ngn    = 500,000 × 0.0030 = 1,500.00 NGN
-net_ngn    = 500,000 − 1,500.00 = 498,500.00 NGN
-gross_acbu = 498,500.00 ÷ 1,003.45 = 496.79 ACBU
-```
-
-### 17.3 Mint and Burn Examples
-
-> These examples use the **0.30% mint fee** (30 BPS, healthy-reserve tier) and
-> the **0.10% burn fee** (10 BPS, normal-reserve tier for GHS).
-> All arithmetic is derived from the formulas in §12.
+- **Savings Vault Fees:** Performance fee on yield generated in the savings vault product.
+- **Lending Pool Origination:** 1–2% origination fee on loans facilitated through the lending pool smart contract.
+- **KYC Validator Rewards:** Validators earn a share of platform fees; the platform retains a portion.
+- **White-Label Licensing:** Regional banks and MNOs can license the ACBU infrastructure for their own branded stablecoin products.
 
 ---
 
-#### Mint Example — 500,000 NGN → ACBU
+## 13. Go-to-Market Strategy
 
-**Inputs**
+**Phase 1 (Year 1):** Target diaspora remittance corridors (Nigeria, Ghana, Kenya). Launch B2C app and partner with 3 major fintech providers.
 
-| Field             | Value         |
-|-------------------|---------------|
-| Local amount      | 500,000 NGN   |
-| Exchange rate     | 1,003.45 NGN/ACBU |
-| Mint fee          | 30 BPS (0.30%) |
+**Phase 2 (Year 2):** Expand to SME cross-border payments. Launch Enterprise API. Onboard first bank partners.
 
-**Calculation**
-
-```
-fee_ngn     = 500,000 × 0.0030          = 1,500.00 NGN
-net_ngn     = 500,000 − 1,500.00        = 498,500.00 NGN
-expected_acbu = 498,500.00 ÷ 1,003.45  = 496.79 ACBU
-```
-
-**Expected API response**
-
-```json
-{
-  "transaction_id": "a1b2c3d4-...",
-  "currency": "NGN",
-  "amount": "500000",
-  "fee_local": "1500.00",
-  "expected_acbu": "496.79",
-  "status": "pending"
-}
-```
+**Phase 3 (Year 3):** Government and institutional use cases. Explore CBDC integration in willing jurisdictions.
 
 ---
 
-#### Burn Example — 500 ACBU → GHS
+## 14. Competitive Landscape
 
-**Inputs**
+| Competitor | Type | Weakness vs. ACBU |
+|------------|------|------------------|
+| USDT/USDC | USD stablecoin | FX risk for African businesses |
+| M-Pesa | Mobile money | Single country, no cross-border |
+| Ripple ODL | XRP bridge | Requires XRP exposure, complex |
+| Chipper Cash | Fintech | Not a stablecoin; high spreads |
 
-| Field             | Value          |
-|-------------------|----------------|
-| ACBU amount       | 500 ACBU       |
-| Exchange rate     | 15.27 GHS/ACBU |
-| Burn fee          | 10 BPS (0.10%) |
-
-**Calculation**
-
-```
-fee_acbu    = 500 × 0.0010              = 0.50 ACBU
-net_acbu    = 500 − 0.50               = 499.50 ACBU
-expected_ghs = 499.50 × 15.27          = 7,627.37 GHS
-```
-
-**Expected API response**
-
-```json
-{
-  "transaction_id": "e5f6a7b8-...",
-  "acbu_amount": "500",
-  "currency": "GHS",
-  "fee_acbu": "0.50",
-  "expected_ghs": "7627.37",
-  "status": "pending"
-}
-```
+ACBU's key differentiator is denomination in African currencies with an on-chain reserve attestation.
 
 ---
 
-#### Verification: 0.997 Net-Factor Formula
+## 15. Risk Management
 
-Both examples can be verified with the compact net-factor formula
-`net = gross × (1 − fee_rate)`:
+### 15.1 Reserve Risk
+- Minimum 102% collateralization ratio enforced by smart contract.
+- Monthly third-party attestation.
+- Emergency redemption pause if ratio drops below 101%.
 
-- Mint: `500,000 NGN × 0.9970 ÷ 1,003.45 = 496.79 ACBU` ✓
-- Burn: `500 ACBU × 0.9990 × 15.27 GHS/ACBU = 7,627.37 GHS` ✓
+### 15.2 FX Risk
+- Basket rebalancing dampens single-currency volatility.
+- Currency weights are governance-controlled with time-locks.
 
-The fee rate for the two operations differs (0.30% mint vs 0.10% burn); use the
-correct rate for each direction. Do not apply the mint fee to the burn leg or
-vice versa.
+### 15.3 Smart Contract Risk
+- Soroban contracts audited by a third party before mainnet deployment.
+- Upgrade mechanism requires multi-sig approval.
+
+### 15.4 Operational Risk
+- Multi-region deployment with Redis-backed session state (no single-process state).
+- Circuit breakers on all fintech partner integrations.
+- Graceful shutdown with RabbitMQ message persistence.
 
 ---
 
-*End of ACBU API Reference*
+## 16. Governance
+
+- **On-chain governance** via a governance token (separate from ACBU) for basket weight changes and contract upgrades.
+- **Off-chain governance** via a Foundation board for fee policy, compliance decisions, and partnership approvals.
+- **Emergency multisig** held by 5 of 9 founding members for urgent contract pauses.
+
+---
+
+## 17. Roadmap
+
+| Quarter | Milestone |
+|---------|-----------|
+| Q1 2026 | Testnet launch, KYC integration, first 3 currencies |
+| Q2 2026 | Mainnet beta, Flutterwave + Paystack integration |
+| Q3 2026 | Full basket (10 currencies), Enterprise API launch |
+| Q4 2026 | Savings vault, lending pool, 3 bank partners |
+| Q1 2027 | SME cross-border product, 10 fintech partners |
+| Q2 2027 | Government pilot, CBDC integration discussions |
+
+---
+
+## 18. Team & Advisors
+
+Details available under NDA for qualified investors. Core team has backgrounds in African fintech, Stellar development, and central bank operations.
+
+---
+
+## 19. Financial Projections
+
+### 19.1 Key Assumptions
+
+| Assumption | Year 1 | Year 2 | Year 3 |
+|------------|--------|--------|--------|
+| Transaction Volume (annualised) | $500M | $2B | $5B |
+| Average Mint Fee (BPS) | 30 | 30 | 30 |
+| Average Burn Fee (BPS) | 30 | 30 | 30 |
+| Reserve Float Yield | 4.0% | 4.5% | 5.0% |
+| Average Reserve Base | $25M | $80M | $150M |
+| Enterprise API Customers | 5 | 20 | 60 |
+| Average Enterprise ARPU/yr | $18,000 | $22,000 | $28,000 |
+
+### 19.2 Projected Revenue by Stream
+
+All figures in USD. Transaction fee projections assume **0.30% per side × 2 sides = 0.60%** effective fee per round-trip, consistent with §12.3.
+
+| Revenue Stream | Year 1 | Year 2 | Year 3 |
+|----------------|--------|--------|--------|
+| **Transaction fees (0.3% × 2 sides)** | **$3,000,000** | **$12,000,000** | **$30,000,000** |
+| Float interest | $1,000,000 | $3,600,000 | $7,500,000 |
+| Conversion spread (25 BPS) | $625,000 | $2,500,000 | $6,250,000 |
+| Enterprise API licensing | $90,000 | $440,000 | $1,680,000 |
+| Ecosystem (savings, lending, KYC) | $50,000 | $500,000 | $3,000,000 |
+| **Total Revenue** | **$4,765,000** | **$19,040,000** | **$48,430,000** |
+
+**Notes on §19.2:**
+1. Transaction fees are the **primary revenue driver** at 63% of Year 1 total, 63% of Year 2, and 62% of Year 3 — consistent with their definition as the primary stream in §12.3.
+2. Float interest is the second largest stream, dependent on reserve base growth.
+3. Conversion spread revenue scales with volume but is smaller than transaction fees because it is 25 BPS vs. an effective 60 BPS for the mint+burn round-trip.
+4. Enterprise API and ecosystem revenues are meaningful at scale but represent diversification rather than primary income.
+
+### 19.3 Cost Structure
+
+| Cost Category | Year 1 | Year 2 | Year 3 |
+|---------------|--------|--------|--------|
+| Engineering & Product | $1,500,000 | $3,000,000 | $5,000,000 |
+| Compliance & Legal | $400,000 | $600,000 | $900,000 |
+| Infrastructure & Cloud | $200,000 | $400,000 | $700,000 |
+| Fintech Partner Fees | $250,000 | $800,000 | $2,000,000 |
+| Marketing & BD | $300,000 | $800,000 | $1,500,000 |
+| G&A | $200,000 | $400,000 | $600,000 |
+| **Total Costs** | **$2,850,000** | **$6,000,000** | **$10,700,000** |
+
+### 19.4 EBITDA
+
+| | Year 1 | Year 2 | Year 3 |
+|--|--------|--------|--------|
+| Total Revenue | $4,765,000 | $19,040,000 | $48,430,000 |
+| Total Costs | $2,850,000 | $6,000,000 | $10,700,000 |
+| **EBITDA** | **$1,915,000** | **$13,040,000** | **$37,730,000** |
+| **EBITDA Margin** | **40%** | **68%** | **78%** |
+
+---
+
+## 20. Appendix
+
+### 20.1 Fee Calculation Examples
+
+**Example: $1,000 remittance Nigeria → Kenya**
+
+1. User deposits $1,000 equivalent in NGN.
+2. System charges **mint fee = 0.30%** → fee = $3.00.
+3. ACBU minted: $997.00 worth.
+4. ACBU transferred to recipient's wallet (no additional fee).
+5. Recipient burns ACBU for KES.
+6. System charges **burn fee = 0.30%** → fee = $2.99.
+7. Recipient receives $994.01 equivalent in KES.
+
+Total fee: $5.99 / $1,000 = **0.60%** — significantly below the industry average of 8–12%.
+
+### 20.2 Reserve Ratio Monitoring
+
+| Ratio | Status | Action |
+|-------|--------|--------|
+| ≥ 1.05 | Healthy | Normal operations |
+| 1.02–1.05 | Adequate | Normal operations |
+| < 1.02 | Stressed | Mint fee increases to 50 BPS |
+| < 1.01 | Critical | Emergency pause considered |
+
+### 20.3 Glossary
+
+- **BPS:** Basis points. 1 BPS = 0.01%. 30 BPS = 0.30%.
+- **Mint:** Converting fiat into ACBU tokens.
+- **Burn:** Redeeming ACBU tokens for fiat.
+- **Reserve Ratio:** Total reserve value / total ACBU outstanding value.
+- **Basket:** The weighted collection of African currencies that ACBU tracks.
+- **JTI:** JWT ID — a unique identifier embedded in each JWT used to prevent replay attacks.
+
+### 20.4 Document History
+
+| Version | Date | Author | Changes |
+|---------|------|--------|---------|
+| 1.0 | 2026-10-19 | ACBU Engineering | Initial creation; fixes W10-DOC-003 — adds transaction/mint-burn fee as §12.3 primary revenue stream; reconciles §19.2 amounts ($3M/$12M/$30M) with §12.3 fee model (0.30% × 2 sides × volume). |

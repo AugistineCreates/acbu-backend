@@ -4,7 +4,6 @@ import { AuthRequest } from "../middleware/auth";
 import {
   issueAdminKey,
   issueBreakGlassKey,
-  issueRefreshToken,
   listPrivilegedKeys,
   refreshAccessToken,
   requestAdminMfaChallenge,
@@ -63,9 +62,11 @@ const revokeRefreshTokenSchema = z.object({
 });
 
 function getRequestIp(req: AuthRequest): string {
-  const connection = (req as AuthRequest & {
-    connection?: { remoteAddress?: string | null };
-  }).connection;
+  const connection = (
+    req as AuthRequest & {
+      connection?: { remoteAddress?: string | null };
+    }
+  ).connection;
 
   return req.ip || req.socket?.remoteAddress || connection?.remoteAddress || "unknown";
 }
@@ -92,10 +93,6 @@ export async function postSignup(
       const msg = e.errors.map((x) => x.message).join("; ");
       return next(new AppError(msg, 400));
     }
-    if (e instanceof Error) {
-      if (e.message === "Username already taken")
-        return next(new AppError(e.message, 409));
-    }
     next(e);
   }
 }
@@ -120,20 +117,15 @@ export async function postSignin(
       issueRefreshToken: body.issue_refresh_token,
     });
     if ("requires_2fa" in result) {
-      res
-        .status(200)
-        .json({ requires_2fa: true, challenge_token: result.challenge_token });
+      res.status(200).json({ requires_2fa: true, challenge_token: result.challenge_token });
       return;
     }
     const payload: Record<string, unknown> = {
       api_key: result.api_key,
       user_id: result.user_id,
       stellar_address: result.stellar_address,
+      wallet_enrollment_required: result.wallet_enrollment_required,
     };
-    if (result.wallet_created) payload.wallet_created = true;
-    if (result.passphrase) payload.passphrase = result.passphrase;
-    if (result.encryption_method_required)
-      payload.encryption_method_required = true;
     if (result.refresh_token) payload.refresh_token = result.refresh_token;
     if (result.refresh_token_expires_at)
       payload.refresh_token_expires_at = result.refresh_token_expires_at;
@@ -142,20 +134,6 @@ export async function postSignin(
     if (e instanceof z.ZodError) {
       const msg = e.errors.map((x) => x.message).join("; ");
       return next(new AppError(msg, 400));
-    }
-    if (e instanceof Error) {
-      if (
-        e.message === "Invalid credentials" ||
-        e.message === "Too many attempts. Please try again later." ||
-        e.message === "CAPTCHA required"
-      ) {
-        const statusCode = e.message === "Invalid credentials" ? 401 : 403;
-        return next(new AppError(e.message, statusCode));
-      }
-      if (e.message === "2FA channel not configured")
-        return next(new AppError(e.message, 400));
-      if (e.message === "OTP delivery unavailable")
-        return next(new AppError(e.message, 503));
     }
     next(e);
   }
@@ -205,11 +183,8 @@ export async function postVerify2fa(
       api_key: result.api_key,
       user_id: result.user_id,
       stellar_address: result.stellar_address,
+      wallet_enrollment_required: result.wallet_enrollment_required,
     };
-    if (result.wallet_created) payload.wallet_created = true;
-    if (result.passphrase) payload.passphrase = result.passphrase;
-    if (result.encryption_method_required)
-      payload.encryption_method_required = true;
     if (result.refresh_token) payload.refresh_token = result.refresh_token;
     if (result.refresh_token_expires_at)
       payload.refresh_token_expires_at = result.refresh_token_expires_at;
@@ -218,27 +193,6 @@ export async function postVerify2fa(
     if (e instanceof z.ZodError) {
       const msg = e.errors.map((x) => x.message).join("; ");
       return next(new AppError(msg, 400));
-    }
-    if (e instanceof Error) {
-      if (
-        e.message === "Invalid credentials" ||
-        e.message === "Too many attempts. Please try again later."
-      ) {
-        const statusCode = e.message === "Invalid credentials" ? 401 : 403;
-        return next(new AppError(e.message, statusCode));
-      }
-      if (e.message === "Invalid or expired challenge")
-        return next(new AppError(e.message, 401));
-      if (
-        e.message === "Invalid code" ||
-        e.message === "Invalid or expired code"
-      )
-        return next(new AppError(e.message, 401));
-      if (
-        e.message === "TOTP not configured" ||
-        e.message === "Unsupported 2FA method"
-      )
-        return next(new AppError(e.message, 400));
     }
     next(e);
   }
@@ -261,20 +215,6 @@ export async function postAdminMfaChallenge(
     const result = await requestAdminMfaChallenge(actorUserId);
     res.status(200).json(result);
   } catch (e) {
-    if (e instanceof Error) {
-      if (e.message === "Admin-tier access required") {
-        return next(new AppError(e.message, 403));
-      }
-      if (e.message === "Organization context required for admin-tier users") {
-        return next(new AppError(e.message, 403));
-      }
-      if (e.message === "2FA required for admin-tier users") {
-        return next(new AppError(e.message, 403));
-      }
-      if (e.message === "2FA channel not configured") {
-        return next(new AppError(e.message, 400));
-      }
-    }
     next(e);
   }
 }
@@ -306,29 +246,6 @@ export async function postIssueAdminKey(
     if (e instanceof z.ZodError) {
       const msg = e.errors.map((x) => x.message).join("; ");
       return next(new AppError(msg, 400));
-    }
-    if (e instanceof Error) {
-      if (e.message === "Admin-tier access required") {
-        return next(new AppError(e.message, 403));
-      }
-      if (e.message === "Organization context required for admin-tier users") {
-        return next(new AppError(e.message, 403));
-      }
-      if (
-        e.message === "Invalid code" ||
-        e.message === "Invalid or expired code" ||
-        e.message === "Invalid or expired challenge"
-      ) {
-        return next(new AppError(e.message, 401));
-      }
-      if (
-        e.message === "Reason is required" ||
-        e.message === "At least one admin scope is required" ||
-        e.message === "Unsupported 2FA method" ||
-        e.message === "TOTP not configured"
-      ) {
-        return next(new AppError(e.message, 400));
-      }
     }
     next(e);
   }
@@ -363,30 +280,6 @@ export async function postIssueBreakGlassKey(
       const msg = e.errors.map((x) => x.message).join("; ");
       return next(new AppError(msg, 400));
     }
-    if (e instanceof Error) {
-      if (e.message === "Admin-tier access required") {
-        return next(new AppError(e.message, 403));
-      }
-      if (e.message === "Organization context required for admin-tier users") {
-        return next(new AppError(e.message, 403));
-      }
-      if (
-        e.message === "Invalid code" ||
-        e.message === "Invalid or expired code" ||
-        e.message === "Invalid or expired challenge"
-      ) {
-        return next(new AppError(e.message, 401));
-      }
-      if (
-        e.message === "Reason is required" ||
-        e.message === "At least one admin scope is required" ||
-        e.message.startsWith("Break-glass TTL") ||
-        e.message === "Unsupported 2FA method" ||
-        e.message === "TOTP not configured"
-      ) {
-        return next(new AppError(e.message, 400));
-      }
-    }
     next(e);
   }
 }
@@ -408,13 +301,6 @@ export async function getPrivilegedKeys(
     const keys = await listPrivilegedKeys(actorUserId);
     res.status(200).json({ keys });
   } catch (e) {
-    if (
-      e instanceof Error &&
-      (e.message === "Admin-tier access required" ||
-        e.message === "Organization context required for admin-tier users")
-    ) {
-      return next(new AppError(e.message, 403));
-    }
     next(e);
   }
 }
@@ -449,20 +335,6 @@ export async function postRevokePrivilegedKey(
       const msg = e.errors.map((x) => x.message).join("; ");
       return next(new AppError(msg, 400));
     }
-    if (e instanceof Error) {
-      if (e.message === "Admin-tier access required") {
-        return next(new AppError(e.message, 403));
-      }
-      if (e.message === "Organization context required for admin-tier users") {
-        return next(new AppError(e.message, 403));
-      }
-      if (e.message === "Privileged key not found") {
-        return next(new AppError(e.message, 404));
-      }
-      if (e.message === "Reason is required") {
-        return next(new AppError(e.message, 400));
-      }
-    }
     next(e);
   }
 }
@@ -487,11 +359,6 @@ export async function postRefreshAccessToken(
       const msg = e.errors.map((x) => x.message).join("; ");
       return next(new AppError(msg, 400));
     }
-    if (e instanceof Error) {
-      if (e.message === "Invalid or expired refresh token") {
-        return next(new AppError(e.message, 401));
-      }
-    }
     next(e);
   }
 }
@@ -515,11 +382,6 @@ export async function postRevokeRefreshToken(
     if (e instanceof z.ZodError) {
       const msg = e.errors.map((x) => x.message).join("; ");
       return next(new AppError(msg, 400));
-    }
-    if (e instanceof Error) {
-      if (e.message === "Invalid refresh token") {
-        return next(new AppError(e.message, 401));
-      }
     }
     next(e);
   }

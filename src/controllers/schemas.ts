@@ -6,61 +6,38 @@
 
 import { z, ZodSchema } from "zod";
 
+// Privacy Validation Schema
+import { consentPreferenceSchema } from "../validation/schemas";
+
 // Auth Controller
-import {
-  signinSchema,
-  signupSchema,
-  verify2faSchema,
-} from "./authController";
+import { signinSchema, signupSchema, verify2faSchema } from "./authController";
 
 // Transfer Controller
-import {
-  createTransferSchema,
-  getTransfersQuerySchema,
-} from "./transferController";
+import { createTransferSchema, getTransfersQuerySchema } from "./transferController";
 
 // Transaction Controller
-import {
-  listTransactionsQuerySchema,
-} from "./transactionController";
+import { listTransactionsQuerySchema } from "./transactionController";
 
 // User Controller
-import {
-  patchMeSchema,
-  addContactSchema,
-  addGuardianSchema,
-} from "./userController";
+import { patchMeSchema, addContactSchema, addGuardianSchema } from "./userController";
 
 // Wallet Controller
-import { walletConfirmSchema } from "./walletController";
+import { walletEnrollSchema } from "./walletController";
 
 // Fiat Controller
-import {
-  faucetSchema,
-  onRampSchema,
-  offRampSchema,
-} from "./fiatController";
+import { faucetSchema, onRampSchema, offRampSchema } from "./fiatController";
 
 // Mint Controller
-import {
-  usdcBodySchema,
-  depositBodySchema,
-} from "./mintController";
+import { usdcBodySchema, depositBodySchema } from "./mintController";
 
 // Burn Controller
 import { bodySchema as burnBodySchema } from "./burnController";
 
 // Recovery Controller
-import {
-  unlockAppSchema,
-  verifyRecoveryOtpSchema,
-} from "./recoveryController";
+import { unlockAppSchema, verifyRecoveryOtpSchema } from "./recoveryController";
 
 // Salary Controller
-import {
-  postSalaryDisburseSchema,
-  postSalaryScheduleSchema,
-} from "./salaryController";
+import { postSalaryDisburseSchema, postSalaryScheduleSchema } from "./salaryController";
 
 // Investment Controller
 import {
@@ -97,7 +74,7 @@ export const routeSchemas: Record<string, ZodSchema> = {
   "PATCH /v1/users/me": patchMeSchema,
   "POST /v1/users/me/contacts": addContactSchema,
   "POST /v1/users/me/guardians": addGuardianSchema,
-  "POST /v1/users/me/wallet/confirm": walletConfirmSchema,
+  "POST /v1/users/me/wallet/enroll": walletEnrollSchema,
 
   // Fiat endpoints
   "POST /v1/fiat/faucet": faucetSchema,
@@ -125,6 +102,9 @@ export const routeSchemas: Record<string, ZodSchema> = {
 
   // Onramp endpoints
   "POST /v1/onramp/register": onrampBodySchema,
+
+  // Privacy endpoints
+  "PUT /v1/privacy/consent": consentPreferenceSchema,
 };
 
 /**

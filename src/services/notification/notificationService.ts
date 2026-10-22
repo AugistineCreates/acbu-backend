@@ -18,11 +18,7 @@ import { sendSmtpEmail, sendSmtpEmailBatch, type SmtpEmailMessage } from "../ema
 
 const cfg = config.notification;
 
-export async function sendEmail(
-  to: string,
-  subject: string,
-  body: string,
-): Promise<void> {
+export async function sendEmail(to: string, subject: string, body: string): Promise<void> {
   if (cfg.emailProvider === "smtp") {
     try {
       await sendSmtpEmail(to, subject, body);
@@ -43,10 +39,22 @@ export async function sendEmail(
   }
   if (cfg.emailProvider === "sendgrid" && cfg.sendgridApiKey) {
     try {
+      // `to` may be a single address or a comma-separated list (see
+      // weightDriftAuditJob.ts, which joins multiple configured admin
+      // recipients this way). SendGrid's API requires each recipient as its
+      // own { email } object in the array — passing the whole joined string
+      // as a single object's `email` field sends one malformed address
+      // instead of delivering to every recipient.
+      const recipients = to
+        .split(",")
+        .map((address) => address.trim())
+        .filter((address) => address.length > 0)
+        .map((email) => ({ email }));
+
       await axios.post(
         "https://api.sendgrid.com/v3/mail/send",
         {
-          personalizations: [{ to: [{ email: to }] }],
+          personalizations: [{ to: recipients }],
           from: {
             email: cfg.emailFrom,
             name: "ACBU",
@@ -61,7 +69,10 @@ export async function sendEmail(
           },
         },
       );
-      logger.info("Email sent via SendGrid", { to: to ? "***" : undefined });
+      logger.info("Email sent via SendGrid", {
+        to: to ? "***" : undefined,
+        recipientCount: recipients.length,
+      });
     } catch (e) {
       logger.error("SendGrid send failed", { error: e });
       throw e;
@@ -70,12 +81,15 @@ export async function sendEmail(
   }
   if (cfg.emailProvider === "ses" && cfg.sesAccessKeyId && cfg.sesSecretAccessKey) {
     try {
-      // AWS SigV4 signing is complex to implement manually. 
+      // AWS SigV4 signing is complex to implement manually.
       // For reliability and production readiness, we recommend installing @aws-sdk/client-ses.
       // Example command: pnpm add @aws-sdk/client-ses
-      logger.warn("SES provider configured but @aws-sdk/client-ses is recommended for production SigV4 signing.", {
-        to: to ? "***" : undefined,
-      });
+      logger.warn(
+        "SES provider configured but @aws-sdk/client-ses is recommended for production SigV4 signing.",
+        {
+          to: to ? "***" : undefined,
+        },
+      );
 
       // Placeholder for actual SDK call or signed request
       throw new Error("SES provider requires @aws-sdk/client-ses for secure communication.");
@@ -128,9 +142,7 @@ export async function sendSms(to: string, body: string): Promise<void> {
     cfg.twilioFromNumber
   ) {
     try {
-      const auth = Buffer.from(
-        `${cfg.twilioAccountSid}:${cfg.twilioAuthToken}`,
-      ).toString("base64");
+      const auth = Buffer.from(`${cfg.twilioAccountSid}:${cfg.twilioAuthToken}`).toString("base64");
       await axios.post(
         `https://api.twilio.com/2010-04-01/Accounts/${cfg.twilioAccountSid}/Messages.json`,
         new URLSearchParams({
@@ -177,15 +189,10 @@ export function renderWithdrawalStatusTemplate(
   return `Your ACBU withdrawal of ${amount} ${currency} has been ${status}.`;
 }
 
-export function renderInvestmentWithdrawalReadyTemplate(
-  amountAcbu: number,
-): string {
+export function renderInvestmentWithdrawalReadyTemplate(amountAcbu: number): string {
   return `Your investment withdrawal of ${amountAcbu} ACBU is now available. You can complete the transfer or burn from your wallet.`;
 }
 
-export function renderReserveAlertTemplate(
-  health: string,
-  ratio: number,
-): string {
+export function renderReserveAlertTemplate(health: string, ratio: number): string {
   return `ACBU reserve alert: health=${health}, overcollateralization ratio=${ratio.toFixed(2)}%.`;
 }
