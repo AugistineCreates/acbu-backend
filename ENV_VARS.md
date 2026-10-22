@@ -159,6 +159,11 @@ This file documents the environment variables required by the ACBU backend and t
 - `RESERVE_TARGET_RATIO` - defaults to `1.05`
 - `RESERVE_ALERT_THRESHOLD` - defaults to `1.02`
 
+### Monitoring (W10-I-013)
+
+- `RESERVE_METRICS_INTERVAL_MS` - Interval for reserve metrics update job (default: 300000, i.e., 5 minutes)
+- `ENABLE_OBSERVABILITY` - Enable observability features (metrics, tracing). Defaults to `true`
+
 ### Notifications
 
 - `NOTIFICATION_EMAIL_PROVIDER` - defaults to `log`

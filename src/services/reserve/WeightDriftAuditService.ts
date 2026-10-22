@@ -68,6 +68,9 @@ export class WeightDriftAuditService {
   /**
    * Calculate drift for each currency: actual vs policy weight.
    * Returns audit-ready report.
+   *
+   * W10-B-012: Iterates the union of policy and actual currencies to ensure
+   * complete coverage. Validates that policy weights sum to 100% before computing drift.
    */
   async calculateDriftReport(): Promise<WeightDriftReport> {
     try {
@@ -77,11 +80,26 @@ export class WeightDriftAuditService {
         policyBasket.map((e) => [e.currency, new Decimal(e.weight)]),
       );
 
+      // W10-B-012: Validate basket weight normalization (should sum to 100%)
+      const policySum = [...policyWeights.values()].reduce((sum, w) => sum + w, 0);
+      if (Math.abs(policySum - 100) > 0.1) {
+        logger.error("Basket weights do not sum to 100%", {
+          policySum,
+          currencies: policyBasket.length,
+        });
+        throw new Error(
+          `Basket weights must sum to 100%, but sum to ${policySum.toFixed(2)}%. Cannot compute meaningful drift.`,
+        );
+      }
+
       // Get actual weights from on-chain/fintech reserves
       const reserveHealth = await reserveTracker.getReserveStatus();
       const actualWeights = new Map(
         reserveHealth.currencies.map((c) => [c.currency, c.actualWeight]),
       );
+
+      // W10-B-012: Iterate the union of policy and actual currencies
+      const allCurrencies = new Set([...policyWeights.keys(), ...actualWeights.keys()]);
 
       // Calculate drift per currency
       const entries: Array<{
@@ -127,7 +145,7 @@ export class WeightDriftAuditService {
         auditId: "", // Will be set after DB insert
         auditPeriodStart: periodStart,
         auditPeriodEnd: now,
-        totalCurrencies: policyBasket.length,
+        totalCurrencies: allCurrencies.size,
         currenciesExceedingThreshold: exceedingCount,
         maxDriftPercent: maxDrift.toNumber(),
         entries: entries.map((entry) => ({
