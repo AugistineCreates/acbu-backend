@@ -32,6 +32,17 @@ export class AppError extends Error {
 }
 
 /**
+ * Dedicated error for CORS rejections so a disallowed Origin surfaces as a
+ * 403 with a clear message instead of a generic 500 INTERNAL_ERROR.
+ */
+export class CorsError extends AppError {
+  constructor(message = "Not allowed by CORS") {
+    super(message, 403, "CORS_FORBIDDEN");
+    this.name = "CorsError";
+  }
+}
+
+/**
  * Sanitize an error for logging: strip stack traces in production
  * and ensure no PII or secrets leak into log output.
  */
