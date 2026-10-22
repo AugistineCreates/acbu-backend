@@ -38,16 +38,9 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
-// ─── CORS errors ────────────────────────────────────────────────────────
-
-/**
- * W10-BE-015 (#1198): a request was rejected because its Origin is not in the
- * CORS allowlist. This is a client-side misconfiguration, not a server fault,
- * so it must surface as 403 rather than a generic 500 INTERNAL_ERROR.
- */
-export class CorsForbiddenError extends ForbiddenError {
-  constructor(message = "Origin not allowed by CORS") {
-    super(message, "CORS_FORBIDDEN");
+export class PolicyViolationError extends AppError {
+  constructor(message = "Policy violation", code = "POLICY_VIOLATION") {
+    super(message, 422, code);
   }
 }
 
@@ -232,6 +225,12 @@ export class InvalidCurrencyError extends ValidationError {
   }
 }
 
+export class InvalidAmountError extends ValidationError {
+  constructor(message = "Invalid amount") {
+    super(message);
+  }
+}
+
 export class TrustlineMissingError extends ValidationError {
   constructor(message = "Trustline missing") {
     super(message);
@@ -246,6 +245,12 @@ export class NonExistentContractFunctionError extends ServiceUnavailableError {
 
 export class InvalidMintAmountError extends ValidationError {
   constructor(message = "Invalid mint amount") {
+    super(message);
+  }
+}
+
+export class InvalidAmountUsdError extends ValidationError {
+  constructor(message = "Invalid amountUsd") {
     super(message);
   }
 }
