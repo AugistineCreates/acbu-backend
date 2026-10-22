@@ -394,7 +394,9 @@ export class ReserveTracker {
     });
 
     const totalMinted = minted._sum.acbuAmount ? Number(minted._sum.acbuAmount.toString()) : 0;
-    const totalBurned = burned._sum.acbuAmountBurned ? Number(burned._sum.acbuAmountBurned.toString()) : 0;
+    const totalBurned = burned._sum.acbuAmountBurned
+      ? Number(burned._sum.acbuAmountBurned.toString())
+      : 0;
 
     return Math.max(0, totalMinted - totalBurned);
   }
